@@ -54,29 +54,119 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
 (define (uniquify-exp env)
   (lambda (e)
     (match e
       [(Var x)
-       (error "TODO: code goes here (uniquify-exp, symbol?)")]
+       (Var (dict-ref env x))]
       [(Int n) (Int n)]
       [(Let x e body)
-       (error "TODO: code goes here (uniquify-exp, let)")]
+       (let* ([new-sym (gensym x)]
+              [new-env (dict-set env x new-sym)])
+         (Let new-sym ((uniquify-exp env) e) ((uniquify-exp new-env) body)))]
       [(Prim op es)
        (Prim op (for/list ([e es]) ((uniquify-exp env) e)))])))
 
 ;; uniquify : R1 -> R1
 (define (uniquify p)
   (match p
-    [(Program info e) (Program info ((uniquify-exp '()) e))]))
+    [(Program info e)
+     (Program info ((uniquify-exp '()) e))]))
+
+(define (rco-atom e)
+  (match e
+    [(Var x) (values (Var x) '())]
+    [(Int n) (values (Int n) '())]
+    [(Let x rhs body)
+     (define new-rhs (rco-exp rhs))
+     (define-values (new-body body-ss) (rco-atom body))
+     (values new-body (append `((,x . ,new-rhs)) body-ss))]
+    [(Prim op es)
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+     (define ss (append* sss))
+     (define tmp (gensym 'tmp))
+     (values (Var tmp)
+             (append ss `((,tmp . ,(Prim op new-es)))))]))
+
+
+;; rco-exp : exp -> exp
+(define (rco-exp e)
+  (match e
+    [(Var x) (Var x)]
+    [(Int n) (Int n)]
+    [(Let x rhs body)
+     (Let x (rco-exp rhs) (rco-exp body))]
+    [(Prim op es)
+     ;; an atomic expression and
+     ;; an alist mapping temporary variables to complex subexpressions.
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+     (make-lets (append* sss) (Prim op new-es))]))
 
 ;; remove-complex-opera* : R1 -> R1
 (define (remove-complex-opera* p)
-  (error "TODO: code goes here (remove-complex-opera*)"))
+  (match p
+    [(Program info e)
+     (Program info (rco-exp e))]))
+
+;(Program
+; '()
+; (Let
+;  'x2019415
+;  (Int 10)
+;  (Let
+;   'y2019416
+;   (Let
+;    'tmp2019417
+;    (Prim '- (list (Int 100)))
+;    (Prim '+ (list (Int 42) (Var 'tmp2019417))))
+;   (Prim '+ (list (Var 'x2019415) (Var 'y2019416))))))
+
+;; tail ::= (Return exp) | (Seq stmt tail)
+;; The explicate_tail function takes an exp in LVar as input and produces a tail in CVar (see figure 2.13). 
+(define (explicate-tail exp)
+  (match exp
+    [(Var x) (values (Return (Var x)) '())]
+    [(Int n) (values (Return (Int n)) '())]
+    [(Let lhs rhs body)
+     ;; the right-hand side of a let executes before its body
+     (let*-values
+         ([(body-c0 body-vars) (explicate-tail body)]
+          [(new-tail new-rhs-vars)
+           (begin
+             (printf "body-c0 is ~a \n" body-c0)
+             (printf "body-vars is ~a \n" body-vars)
+             (explicate-assign rhs lhs body-c0))])
+       (values new-tail (append new-rhs-vars body-vars)))]
+    [(Prim op es)
+     (values (Return (Prim op es)) '())]))
+
+;; The explicate_assign function takes an exp in LVar, the variable to which it is to be assigned, and a tail in CVar for the code that comes after the assignment.
+;; The explicate_assign function returns a tail in CVar.
+;; the c parameter is used for accumulating the output
+(define (explicate-assign r1exp v c)
+  (printf "explicate-assign ~a\n~a\n~a\n" r1exp v c)
+  (match r1exp
+    [(Let x e body) 
+     (define-values (tail let-binds) (explicate-assign body v c))
+     (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
+     (values tail^ (cons x (append let-binds let-binds^)))]
+    [else
+     (printf "else r1exp is ******* ~a \n" r1exp)
+     (values (Seq (Assign v r1exp) c) '())]))
 
 ;; explicate-control : R1 -> C0
 (define (explicate-control p)
-  (error "TODO: code goes here (explicate-control)"))
+  (printf "explicate-control ======= p is ~a \n" p)
+  (match p
+    [(Program info body)
+     (begin
+       (define-values (tail vars) (explicate-tail body))
+       ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
+       (CProgram vars `((start . ,tail))))]))
+  ;(error "TODO: code goes here (explicate-control)"))
 
 ;; select-instructions : C0 -> pseudo-x86
 (define (select-instructions p)
@@ -100,8 +190,8 @@
 (define compiler-passes
   `( ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ;; Uncomment the following passes as you finish them.
-     ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
-     ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
+     ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;; ("instruction selection" ,select-instructions ,interp-x86-0)
      ;; ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
