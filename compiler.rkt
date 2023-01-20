@@ -132,14 +132,15 @@
     [(Int n) (values (Return (Int n)) '())]
     [(Let lhs rhs body)
      ;; the right-hand side of a let executes before its body
-     (let*-values
+     #;(let*-values
          ([(body-c0 body-vars) (explicate-tail body)]
-          [(new-tail new-rhs-vars)
-           (begin
-             (printf "body-c0 is ~a \n" body-c0)
-             (printf "body-vars is ~a \n" body-vars)
-             (explicate-assign rhs lhs body-c0))])
-       (values new-tail (append new-rhs-vars body-vars)))]
+          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
+       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
+     
+     (define-values (body-c0 body-vars) (explicate-tail body))
+     (define-values (new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0))
+     (values new-tail (cons lhs (append new-rhs-vars body-vars)))
+     ]
     [(Prim op es)
      (values (Return (Prim op es)) '())]))
 
@@ -147,26 +148,40 @@
 ;; The explicate_assign function returns a tail in CVar.
 ;; the c parameter is used for accumulating the output
 (define (explicate-assign r1exp v c)
-  (printf "explicate-assign ~a\n~a\n~a\n" r1exp v c)
   (match r1exp
+    [(Int n)
+     (values (Seq (Assign v (Int n)) c) '())]
+    [(Prim 'read '())
+     (values (Seq (Assign v (Prim 'read '())) c) '())]
+    [(Prim '- (list e))
+     (values (Seq (Assign v (Prim '- (list e))) c)
+             '())] 
+    [(Prim '+ (list e1 e2))
+     (values (Seq (Assign v (Prim '+ (list e1 e2))) c)
+             '())] 
+    [(Var x)
+     (values (Seq (Assign v (Var x)) c) '())]
     [(Let x e body) 
      (define-values (tail let-binds) (explicate-assign body v c))
      (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
      (values tail^ (cons x (append let-binds let-binds^)))]
     [else
-     (printf "else r1exp is ******* ~a \n" r1exp)
-     (values (Seq (Assign v r1exp) c) '())]))
+     (error "error explicate-assign ")]))
+;     (printf "else v r1exp is ******* ~a ~a \n" v r1exp)
+;     (values (Seq (Assign v r1exp) c) '())]))
 
 ;; explicate-control : R1 -> C0
 (define (explicate-control p)
-  (printf "explicate-control ======= p is ~a \n" p)
   (match p
     [(Program info body)
      (begin
        (define-values (tail vars) (explicate-tail body))
+       (printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
        ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
-       (CProgram vars `((start . ,tail))))]))
+       (CProgram (cons (cons 'locals vars) info)
+                 (list (cons 'start tail))))]))
   ;(error "TODO: code goes here (explicate-control)"))
+
 
 ;; select-instructions : C0 -> pseudo-x86
 (define (select-instructions p)
