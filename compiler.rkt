@@ -182,10 +182,56 @@
                  (list (cons 'start tail))))]))
   ;(error "TODO: code goes here (explicate-control)"))
 
+(define (select-instr-atm a)
+  (match a
+    [(Int i) (Imm i)]
+    [(Var _) a]))
+
+(define (select-instr-assign v e)
+  (match e
+    [(Int i) 
+     (list (Instr 'movq (list (select-instr-atm e) v)))]
+    [(Var _)
+     (list (Instr 'movq (list (select-instr-atm e) v)))]
+    [(Prim 'read '())
+     (list (Callq 'read_int)
+           (Instr 'movq (list (Reg 'rax) v)))]
+    [(Prim '- (list a))
+     (list (Instr 'movq (list (select-instr-atm a) v))
+           (Instr 'negq (list v)))]
+    [(Prim '+ (list a1 a2))
+     (list (Instr 'movq (list (select-instr-atm a1) v))
+           (Instr 'addq (list (select-instr-atm a2) v)))]))
+
+(define (select-instr-stmt stmt)
+  (match stmt
+    [(Assign (Var v) (Prim '+ (list (Var v1) a2))) #:when (equal? v v1)
+     (list (Instr 'addq (list (select-instr-atm a2) (Var v))))]
+    [(Assign (Var v) (Prim '+ (list a1 (Var v2)))) #:when (equal? v v2)
+     (list (Instr 'addq (list (select-instr-atm a1) (Var v))))]
+    [(Assign v e)
+     (select-instr-assign v e)]))
+
+(define (select-instr-tail t)
+  (match t
+    [(Seq stmt t*) 
+     (append (select-instr-stmt stmt) (select-instr-tail t*))]
+    [(Return (Prim 'read '())) 
+     (list (Callq 'read_int) (Jmp 'conclusion))]
+    [(Return e) (append
+                 (select-instr-assign (Reg 'rax) e)
+                 (list (Jmp 'conclusion)))]))
+
+(define (select-instructions p)
+  (match p
+    [(Program info (CFG (list (cons 'start t))))
+     (Program info
+       (CFG (list (cons 'start (Block '() (select-instr-tail t))))))]))
+
 
 ;; select-instructions : C0 -> pseudo-x86
-(define (select-instructions p)
-  (error "TODO: code goes here (select-instructions)"))
+;(define (select-instructions p)
+;  (error "TODO: code goes here (select-instructions)"))
 
 ;; assign-homes : pseudo-x86 -> pseudo-x86
 (define (assign-homes p)
