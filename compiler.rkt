@@ -7,6 +7,7 @@
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
+(require "interp.rkt")
 (provide (all-defined-out))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -90,6 +91,11 @@
      (values (Var tmp)
              (append ss `((,tmp . ,(Prim op new-es)))))]))
 
+;(define (make-lets bs e)
+;  (match bs
+;    [`() e]
+;    [`((,x . ,e^) . ,bs^)
+;     (Let x e^ (make-lets bs^ e))]))
 
 ;; rco-exp : exp -> exp
 (define (rco-exp e)
@@ -125,31 +131,38 @@
 ;   (Prim '+ (list (Var 'x2019415) (Var 'y2019416))))))
 
 ;; tail ::= (Return exp) | (Seq stmt tail)
-;; The explicate_tail function takes an exp in LVar as input and produces a tail in CVar (see figure 2.13). 
+;; The explicate_tail function takes an exp in LVar as input
+;; and produces a tail in CVar (see figure 2.13). 
 (define (explicate-tail exp)
   (match exp
     [(Var x) (values (Return (Var x)) '())]
     [(Int n) (values (Return (Int n)) '())]
     [(Let lhs rhs body)
      ;; the right-hand side of a let executes before its body
-     #;(let*-values
-         ([(body-c0 body-vars) (explicate-tail body)]
-          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
-       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
-     
+;     (let*-values
+;         ([(body-c0 body-vars) (explicate-tail body)]
+;          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
+;       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
+     ;; body-vars为body中的变量
+     ;; body-c0为tail，即为(Return exp) 或者是 (Seq stmt tail)
      (define-values (body-c0 body-vars) (explicate-tail body))
+     ;; (printf "exp is ~a , body-c0 is ------ ~a \n" exp body-c0)
      (define-values (new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0))
      (values new-tail (cons lhs (append new-rhs-vars body-vars)))
      ]
     [(Prim op es)
      (values (Return (Prim op es)) '())]))
 
-;; The explicate_assign function takes an exp in LVar, the variable to which it is to be assigned, and a tail in CVar for the code that comes after the assignment.
+;; The explicate_assign function takes an exp in LVar,
+;; the variable to which it is to be assigned,
+;; and a tail in CVar for the code that comes after the assignment.
 ;; The explicate_assign function returns a tail in CVar.
 ;; the c parameter is used for accumulating the output
+;; 把r1exp赋值给变量v
 (define (explicate-assign r1exp v c)
   (match r1exp
     [(Int n)
+     ;; 在c的前面加上，这样就反过来了，最里面的会跑到最外面来
      (values (Seq (Assign v (Int n)) c) '())]
     [(Prim 'read '())
      (values (Seq (Assign v (Prim 'read '())) c) '())]
@@ -164,6 +177,8 @@
     [(Let x e body) 
      (define-values (tail let-binds) (explicate-assign body v c))
      (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
+     ;; 想一想为什么不是(append let-binds^ let-binds)
+     ;(values tail^ (cons x (append let-binds^ let-binds)))]
      (values tail^ (cons x (append let-binds let-binds^)))]
     [else
      (error "error explicate-assign ")]))
@@ -176,11 +191,12 @@
     [(Program info body)
      (begin
        (define-values (tail vars) (explicate-tail body))
-       (printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
+       ;;(printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
        ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
        (CProgram (cons (cons 'locals vars) info)
                  (list (cons 'start tail))))]))
   ;(error "TODO: code goes here (explicate-control)"))
+
 
 (define (select-instr-atm a)
   (match a
@@ -224,9 +240,9 @@
 
 (define (select-instructions p)
   (match p
-    [(Program info (CFG (list (cons 'start t))))
-     (Program info
-       (CFG (list (cons 'start (Block '() (select-instr-tail t))))))]))
+    [(CProgram info (list (cons 'start t)))
+     (X86Program info
+       (list (cons 'start (Block '() (select-instr-tail t)))))]))
 
 
 ;; select-instructions : C0 -> pseudo-x86
@@ -253,7 +269,7 @@
      ;; Uncomment the following passes as you finish them.
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ;; ("instruction selection" ,select-instructions ,interp-x86-0)
+     ("instruction selection" ,select-instructions ,interp-x86-0)
      ;; ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
