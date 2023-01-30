@@ -55,7 +55,7 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
+;; 想一想环境中保存的是什么
 (define (uniquify-exp env)
   (lambda (e)
     (match e
@@ -80,6 +80,9 @@
     [(Var x) (values (Var x) '())]
     [(Int n) (values (Int n) '())]
     [(Let x rhs body)
+     ;; 想一想返回的应该是什么？
+     ;; 最后的表达式，以及最后表达式中变量和原子表达式的对应关系列表
+     ;; 变成atom之后的表达式，以及中间变量与对应的atom表达式的对应列表
      (define new-rhs (rco-exp rhs))
      (define-values (new-body body-ss) (rco-atom body))
      (values new-body (append `((,x . ,new-rhs)) body-ss))]
@@ -98,6 +101,8 @@
 ;     (Let x e^ (make-lets bs^ e))]))
 
 ;; rco-exp : exp -> exp
+;; 最后会变成一个let
+;; 返回最后的结果
 (define (rco-exp e)
   (match e
     [(Var x) (Var x)]
@@ -137,6 +142,8 @@
   (match exp
     [(Var x) (values (Return (Var x)) '())]
     [(Int n) (values (Return (Int n)) '())]
+    ;; 先想想应该返回的是什么
+    ;; 应该返回的是顺序的赋值表达式列表，是个Seq，对let中变量和值进行赋值
     [(Let lhs rhs body)
      ;; the right-hand side of a let executes before its body
 ;     (let*-values
@@ -159,6 +166,8 @@
 ;; The explicate_assign function returns a tail in CVar.
 ;; the c parameter is used for accumulating the output
 ;; 把r1exp赋值给变量v
+;;想想返回值是什么？
+;; 对变量进行赋值后，形成的Seq
 (define (explicate-assign r1exp v c)
   (match r1exp
     [(Int n)
@@ -190,10 +199,10 @@
   (match p
     [(Program info body)
      (begin
-       (define-values (tail vars) (explicate-tail body))
+       (define-values (tail let-binds) (explicate-tail body))
        ;;(printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
        ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
-       (CProgram (cons (cons 'locals vars) info)
+       (CProgram (cons (cons 'locals let-binds) info)
                  (list (cons 'start tail))))]))
   ;(error "TODO: code goes here (explicate-control)"))
 
@@ -249,9 +258,47 @@
 ;(define (select-instructions p)
 ;  (error "TODO: code goes here (select-instructions)"))
 
-;; assign-homes : pseudo-x86 -> pseudo-x86
+(define (calc-stack-space ls) (* 8 (length ls)))
+
+(define (find-index v ls)
+  (cond
+    ;;[(eq? v (Var-name (car ls))) 1]
+    [(eq? v (car ls)) 1]
+    [else (add1 (find-index v (cdr ls)))]
+    ))
+
+(define (assign-homes-imm i ls)
+  (match i
+    [(Reg reg) (Reg reg)]
+    [(Imm int) (Imm int)]
+    [(Var v) (Deref 'rbp (* -8 (find-index v (cdr ls))))]
+   ))
+   
+(define (assign-homes-instr i ls)
+  (match i
+    [(Instr op (list e1)) 
+     (Instr op (list (assign-homes-imm e1 ls)))]
+    [(Instr op (list e1 e2))
+     (Instr op (list (assign-homes-imm e1 ls) (assign-homes-imm e2 ls)))]
+    [else i]
+    ))
+    
+(define (assign-homes-block b ls)
+  (match b
+    [(Block info es) 
+     (Block info (for/list ([e es]) (assign-homes-instr e ls)))]
+    ))
+
 (define (assign-homes p)
-  (error "TODO: code goes here (assign-homes)"))
+  (match p
+    [(X86Program info (list (cons 'start es)))
+     (printf "info is ===== ~a \n" (cdr (car info)))
+     (X86Program (list (cons 'stack-space (calc-stack-space (cdr (car info)))))
+       (list (cons 'start (assign-homes-block es (car info)))))]))
+
+;; assign-homes : pseudo-x86 -> pseudo-x86
+;(define (assign-homes p)
+;  (error "TODO: code goes here (assign-homes)"))
 
 ;; patch-instructions : psuedo-x86 -> x86
 (define (patch-instructions p)
@@ -270,7 +317,7 @@
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ("instruction selection" ,select-instructions ,interp-x86-0)
-     ;; ("assign homes" ,assign-homes ,interp-x86-0)
+     ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
