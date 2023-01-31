@@ -230,6 +230,7 @@
 
 (define (select-instr-stmt stmt)
   (match stmt
+    ;; one of the args is the same as the left hand side Var
     [(Assign (Var v) (Prim '+ (list (Var v1) a2))) #:when (equal? v v1)
      (list (Instr 'addq (list (select-instr-atm a2) (Var v))))]
     [(Assign (Var v) (Prim '+ (list a1 (Var v2)))) #:when (equal? v v2)
@@ -260,6 +261,7 @@
 
 (define (calc-stack-space ls) (* 8 (length ls)))
 
+;; be related to the function 'explicate-tail' let branch (append new-rhs-vars body-vars)
 (define (find-index v ls)
   (cond
     ;;[(eq? v (Var-name (car ls))) 1]
@@ -291,8 +293,11 @@
 
 (define (assign-homes p)
   (match p
+    ;; The locals-types entry is an alist mapping all the variables in
+    ;; the program to their types (for now, just Integer).
+    ;; the locals-types entry is computed by type-check-Cvar in the support code,
     [(X86Program info (list (cons 'start es)))
-     (printf "info is ===== ~a \n" (cdr (car info)))
+     ;;(printf "info is ===== ~a \n" (cdr (car info)))
      (X86Program (list (cons 'stack-space (calc-stack-space (cdr (car info)))))
        (list (cons 'start (assign-homes-block es (car info)))))]))
 
