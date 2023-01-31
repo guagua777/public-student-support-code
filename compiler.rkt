@@ -305,9 +305,31 @@
 ;(define (assign-homes p)
 ;  (error "TODO: code goes here (assign-homes)"))
 
-;; patch-instructions : psuedo-x86 -> x86
+(define (patch-instr instruction)
+  (match instruction
+    [(Instr op (list (Deref  reg off) (Deref reg2 off2)))
+         (list (Instr 'movq (list (Deref reg off) (Reg 'rax)))
+               (Instr op (list (Reg 'rax) (Deref reg2 off2))))]
+    [else (list instruction)]))
+
+;; append-map
+;; (append* (map proc lst ...))
+;; for each list execute proc, then append all the lists
+(define (patch-block b)
+  (match b
+    [(Block '() instrs)
+     (Block '() (append-map patch-instr instrs))]))
+
 (define (patch-instructions p)
-  (error "TODO: code goes here (patch-instructions)"))
+   (match p
+    [(X86Program info B-list)
+     (X86Program info (map
+                       (lambda (x) `(,(car x) . ,(patch-block (cdr x))))
+                       B-list))]))
+
+;; patch-instructions : psuedo-x86 -> x86
+;(define (patch-instructions p)
+;  (error "TODO: code goes here (patch-instructions)"))
 
 ;; prelude-and-conclusion : x86 -> x86
 (define (prelude-and-conclusion p)
@@ -323,6 +345,6 @@
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ("instruction selection" ,select-instructions ,interp-x86-0)
      ("assign homes" ,assign-homes ,interp-x86-0)
-     ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
+     ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
