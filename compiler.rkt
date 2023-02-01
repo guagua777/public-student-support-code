@@ -307,10 +307,11 @@
 
 (define (patch-instr instruction)
   (match instruction
-    [(Instr op (list (Deref  reg off) (Deref reg2 off2)))
-         (list (Instr 'movq (list (Deref reg off) (Reg 'rax)))
-               (Instr op (list (Reg 'rax) (Deref reg2 off2))))]
+    [(Instr op (list (Deref reg off) (Deref reg2 off2)))
+     (list (Instr 'movq (list (Deref reg off) (Reg 'rax)))
+           (Instr op (list (Reg 'rax) (Deref reg2 off2))))]
     [else (list instruction)]))
+    ;;[else instruction]))
 
 ;; append-map
 ;; (append* (map proc lst ...))
@@ -327,13 +328,36 @@
                        (lambda (x) `(,(car x) . ,(patch-block (cdr x))))
                        B-list))]))
 
-;; patch-instructions : psuedo-x86 -> x86
-;(define (patch-instructions p)
-;  (error "TODO: code goes here (patch-instructions)"))
+;; 问题
+;; 1. main里面的，一条命令里面有两个栈引用，是否需要修改
+;; 2. main和conclusion的固定格式的原因是什么？
+(define make-prelude
+  (lambda ()
+    (cons 'main
+                (Block '() (list (Instr 'pushq (list (Deref 'rbp 0)))
+                                 (Instr 'movq (list (Deref 'rsp 0) (Deref 'rbp 0)))
+                                 (Instr 'subq (list (Imm 16) (Deref 'rsp 0)))
+                                 (Jmp 'start))))))
+
+(define make-conclusion
+  (lambda ()
+    (cons 'conclusion
+                (Block '() (list (Instr 'addq (list (Imm 16) (Deref 'rsp 0)))
+                                 (Instr 'popq (list (Deref 'rbp 0)))
+                                 (Retq))))))
+
+(define (prelude-and-conclusion p)
+  (match p
+    [(X86Program info `((start . ,bs)))
+     (X86Program info (list (make-prelude) `(start . ,bs) (make-conclusion)))]))
+;     (X86Program info (map
+;                       (lambda (x) `(,(car x) . ,(patch-block (cdr x))))
+;                       (list (make-prelude B-list (make-conclusion))))]))
+    
 
 ;; prelude-and-conclusion : x86 -> x86
-(define (prelude-and-conclusion p)
-  (error "TODO: code goes here (prelude-and-conclusion)"))
+;(define (prelude-and-conclusion p)
+;  (error "TODO: code goes here (prelude-and-conclusion)"))
 
 ;; Define the compiler passes to be used by interp-tests and the grader
 ;; Note that your compiler file (the file that defines the passes)
@@ -346,5 +370,66 @@
      ("instruction selection" ,select-instructions ,interp-x86-0)
      ("assign homes" ,assign-homes ,interp-x86-0)
      ("patch instructions" ,patch-instructions ,interp-x86-0)
-     ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
+     ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
+
+
+;; patch-instructions : psuedo-x86 -> x86
+;(define (patch-instructions p)
+;  (error "TODO: code goes here (patch-instructions)"))
+
+;
+;(define (print-x86-imm e)
+;  (match e
+;    [(Deref reg i)
+;     (format "~a(%~a)" i reg)]
+;    [(Imm n) (format "$~a" n)]
+;    [(Reg r) (format "%~a" r)]
+;    ))
+;
+;(define (print-x86-instr e)
+;  (verbose "R1/print-x86-instr" e)
+;  (match e
+;    [(Callq f)
+;     (format "\tcallq\t~a\n" (label-name (symbol->string f)))]
+;    [(Jmp label) (format "\tjmp ~a\n" (label-name label))]
+;    [(Instr instr-name (list s d))
+;     (format "\t~a\t~a, ~a\n" instr-name
+;             (print-x86-imm s) 
+;             (print-x86-imm d))]
+;    [(Instr instr-name (list d))
+;     (format "\t~a\t~a\n" instr-name (print-x86-imm d))]
+;    [else (error "R1/print-x86-instr, unmatched" e)]
+;    ))
+;
+;(define (print-x86-block e)
+;  (match e
+;    [(Block info ss)
+;     (string-append* (for/list ([s ss]) (print-x86-instr s)))]
+;    [else
+;     (error "R1/print-x86-block unhandled " e)]))
+;
+;(define (print-x86 e)
+;  (match e
+;    [(Program info (CFG G))
+;     (define stack-space (dict-ref info 'stack-space))
+;     (string-append
+;      (string-append*
+;       (for/list ([(label block) (in-dict G)])
+;         (string-append (format "~a:\n" (label-name label))
+;                        (print-x86-block block))))
+;      "\n"
+;      (format "\t.globl ~a\n" (label-name "main"))
+;      (format "~a:\n" (label-name "main"))
+;      (format "\tpushq\t%rbp\n")
+;      (format "\tmovq\t%rsp, %rbp\n")
+;      (format "\tsubq\t$~a, %rsp\n" (align stack-space 16))
+;      (format "\tjmp ~a\n" (label-name 'start))
+;      (format "~a:\n" (label-name 'conclusion))
+;      (format "\taddq\t$~a, %rsp\n" (align stack-space 16))
+;      (format "\tpopq\t%rbp\n")
+;      (format "\tretq\n")
+;      )]
+;    [else (error "print-x86, unmatched" e)]
+;    ))
+
