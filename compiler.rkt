@@ -1,6 +1,7 @@
 #lang racket
 (require racket/set racket/stream)
 (require racket/fixnum)
+(require graph)
 (require "interp-Lint.rkt")
 (require "interp-Lvar.rkt")
 (require "interp-Cvar.rkt")
@@ -8,6 +9,7 @@
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
+
 (provide (all-defined-out))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -254,6 +256,208 @@
      (X86Program info
        (list (cons 'start (Block '() (select-instr-tail t)))))]))
 
+;;==============================================================
+;; live --- interference --- color
+;; 47 minutes
+;; uncover-live: live-after -> pseudo-x86 -> pseudo-x86*
+;; *annotated program with live-after information for each stmt
+
+(define (free-vars arg)
+  (match arg
+    [(Var x) (set x)]
+    [(Reg r) (set r)]
+    ;; 栈 r为rbp i为offset
+    [(Deref r i) (set r)]
+    [(Imm n) (set)]
+    [else (error "free-vars, unhandled" arg)]))
+
+(define (read-vars instr)
+  (match instr
+    [(Instr 'movq (list s d)) (free-vars s)]
+    [(Instr name arg*)
+     (apply set-union (for/list ([arg arg*]) (free-vars arg)))]
+    ;;[(Callq f) (set)]
+    [(Callq f arity) (set)]
+    ;;[(Callq f arity)
+    ;; (apply set-union (for/list ([a arity]) (free-vars a)))]
+    [(Jmp label) (set)]
+    [else (error "read-vars unmatched" instr)]))
+
+(define (write-vars instr)
+  (match instr
+    [(Instr 'movq (list s d)) (free-vars d)]
+    [(Instr name arg*) (free-vars (last arg*))]
+    [(Jmp label) (set)]
+    ;;[(Callq f) (set)]
+    [(Callq f arity) (set)]
+    ;;[(Callq f arity) 
+    [else (error "write-vars unmatched" instr)]))
+
+(define (uncover-live-instr live-after)
+  (lambda (stmt)
+    (set-union (set-subtract live-after (write-vars stmt))
+               (read-vars stmt))))
+                                   
+(define (uncover-live-stmts orig-live-after)
+  (lambda (orig-ss)
+    (let loop ([ss (reverse orig-ss)]
+               [live-after orig-live-after]
+               [lives (list orig-live-after)])
+      (cond [(null? ss) lives]
+            [else
+             (define new-live-after
+               ((uncover-live-instr live-after) (car ss)))
+             (loop (cdr ss) new-live-after
+                   (cons new-live-after lives))]))))
+
+(define (uncover-live-block ast live-after)
+  (match ast
+    ;; ss is list statements
+    [(Block info ss)
+     (define lives ((uncover-live-stmts live-after) ss))
+     (define new-info (dict-set info 'lives lives))
+     (Block new-info ss)]
+    [else
+     (error "R1-reg/uncover-live-block unhandled" ast)]))
+
+;; what is args of the uncover-list
+;; what is the ast
+;; it is the result of the instruction selection
+(define (uncover-live ast)
+  (match ast
+    [(X86Program info (list (cons 'start block)))
+     (define new-block (uncover-live-block block (set)))
+     (X86Program info (list (cons 'start new-block)))]))
+
+;; (define h #hash((a . "apple") (b . "banana")))
+;; (for/list ([(k v) (in-dict h)])
+;;   (format "~a = ~s" k v))
+
+;(for/list ([i '(1 2 3)]
+;             [j "abc"]
+;             #:break (not (odd? i))
+;             [k #(#t #f)])
+;    (cons i j))
+
+;(define test-uncover-match
+;  (lambda (x86p)
+;    (match x86p
+;      [(X86Program info (list (cons 'start bs)))
+;       (printf "~a " bs)]
+;      [else (error "no match" x86p)])))
+  
+
+;; the result of the instruction selection
+;(X86Program
+; '((locals a708913 b708914)
+;   (locals-types (b708914 . Integer) (a708913 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
+;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
+;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
+;     (Jmp 'conclusion))))))
+
+
+;(uncover-live (X86Program
+; '((locals a708913 b708914)
+;   (locals-types (b708914 . Integer) (a708913 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
+;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
+;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
+;     (Jmp 'conclusion)))))))
+
+;;==========
+;; 55 minutes
+;; build-interference: live-after x graph -> pseudo-x86* -> pseudo-x86*
+;; *annotate program with interference graph
+;
+;(define (build-interference-instr live-after G)
+;  (lambda (ast)
+;    (verbose "build-interference-instr " ast live-after)
+;    (match ast
+;      [(Instr 'movq (list s d))
+;       (for ([v live-after])
+;         (for ([d (free-vars d)])
+;           (cond [(equal? (Var v) s)
+;                  (verbose "same source" s)]
+;                 [(equal? v d)
+;                  (verbose "skip self edge on " d)]
+;                 [else
+;                  (verbose "adding edge " d v)
+;                  (add-edge! G d v)]))) ast]
+;      [(Callq f arity)
+;       (for ([v live-after])
+;         (for ([u caller-save-for-alloc])
+;           (cond [(equal? v u)
+;                  (verbose "skip self edge on " v)]
+;                 [else
+;                  (verbose "adding edge " u v)
+;                  (add-edge! G u v)])))
+;       ast]
+;      [else
+;       (for ([v live-after])
+;         (for ([d (write-vars ast)])
+;           (cond [(equal? v d)
+;                  (verbose "skip self edge on " d)]
+;                 [else
+;                  (verbose "adding edge " d v)
+;                  (add-edge! G d v)])))
+;       ast])))
+;                 
+;  
+;(define (build-interference-block ast G)
+;  (match ast
+;    [(Block info ss)
+;     (define lives (dict-ref info 'lives))
+;     ;; put off the live-before of the first instruction
+;     (define live-afters (cdr lives))
+;     (define new-ss (for/list ([inst ss] [live-after live-afters])
+;                      ((build-interference-instr live-after G) inst)))
+;     (define new-info (dict-remove info 'lives))
+;     (Block new-info new-ss)]
+;    [else (error "R1-reg/build-interference-block unhandled" ast)]))
+;
+;(define (build-interference ast)
+;  (verbose "build-interference " ast)
+;  (match ast
+;    [(Program info (CFG cfg))
+;     (define locals (dict-ref info 'locals))
+;     (define G (undirected-graph '()))
+;     (for ([v locals])
+;       (add-vertex! G v))
+;     (define new-CFG
+;       (for/list ([(label block) (in-dict cfg)])
+;         (cons label (build-interference-block block G))))
+;     (print-dot G "./interfere.dot")
+;     (define new-info (dict-set info 'conficts G))
+;     (Program new-info (CFG new-CFG))]))
+
+
+;;===========
+;; build-move-graph: pseudo-x86* -> pseudo-x86*
+;; *annotate program with move graph
+
+;(define/public (build-move-graph-instr G)
+;  (lambda (ast)
+;    (match ast
+;      [(Instr 'movq (list (Var s) (Var d)))
+;       (if use-move-biasing
+;           ...)])))
+
+
+
+;; =====================================================
 
 ;; select-instructions : C0 -> pseudo-x86
 ;(define (select-instructions p)
