@@ -9,6 +9,7 @@
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
+(require "graph-printing.rkt")
 
 (provide (all-defined-out))
 
@@ -381,53 +382,69 @@
 ;; 55 minutes
 ;; build-interference: live-after x graph -> pseudo-x86* -> pseudo-x86*
 ;; *annotate program with interference graph
-;
-;(define (build-interference-instr live-after G)
-;  (lambda (ast)
-;    (verbose "build-interference-instr " ast live-after)
-;    (match ast
-;      [(Instr 'movq (list s d))
-;       (for ([v live-after])
-;         (for ([d (free-vars d)])
-;           (cond [(equal? (Var v) s)
-;                  (verbose "same source" s)]
-;                 [(equal? v d)
-;                  (verbose "skip self edge on " d)]
-;                 [else
-;                  (verbose "adding edge " d v)
-;                  (add-edge! G d v)]))) ast]
-;      [(Callq f arity)
-;       (for ([v live-after])
-;         (for ([u caller-save-for-alloc])
-;           (cond [(equal? v u)
-;                  (verbose "skip self edge on " v)]
-;                 [else
-;                  (verbose "adding edge " u v)
-;                  (add-edge! G u v)])))
-;       ast]
-;      [else
-;       (for ([v live-after])
-;         (for ([d (write-vars ast)])
-;           (cond [(equal? v d)
-;                  (verbose "skip self edge on " d)]
-;                 [else
-;                  (verbose "adding edge " d v)
-;                  (add-edge! G d v)])))
-;       ast])))
-;                 
-;  
-;(define (build-interference-block ast G)
-;  (match ast
-;    [(Block info ss)
-;     (define lives (dict-ref info 'lives))
-;     ;; put off the live-before of the first instruction
-;     (define live-afters (cdr lives))
-;     (define new-ss (for/list ([inst ss] [live-after live-afters])
-;                      ((build-interference-instr live-after G) inst)))
-;     (define new-info (dict-remove info 'lives))
-;     (Block new-info new-ss)]
-;    [else (error "R1-reg/build-interference-block unhandled" ast)]))
-;
+
+(define (build-interference-instr live-after G)
+  (lambda (ast)
+    (verbose "build-interference-instr " ast live-after)
+    (match ast
+      [(Instr 'movq (list s d))
+       (for ([v live-after])
+         (for ([d (free-vars d)])
+           (cond [(equal? (Var v) s)
+                  (verbose "same source" s)]
+                 [(equal? v d)
+                  (verbose "skip self edge on " d)]
+                 [else
+                  (verbose "adding edge " d v)
+                  (add-edge! G d v)])))
+       ast]
+      [(Callq f arity)
+       (for ([v live-after])
+         (for ([u caller-save-for-alloc])
+           (cond [(equal? v u)
+                  (verbose "skip self edge on " v)]
+                 [else
+                  (verbose "adding edge " u v)
+                  (add-edge! G u v)])))
+       ast]
+      [else
+       (for ([v live-after])
+         (for ([d (write-vars ast)])
+           (cond [(equal? v d)
+                  (verbose "skip self edge on " d)]
+                 [else
+                  (verbose "adding edge " d v)
+                  (add-edge! G d v)])))
+       ast])))
+                 
+  
+(define (build-interference-block ast G)
+  (match ast
+    [(Block info ss)
+     (define lives (dict-ref info 'lives))
+     ;; put off the live-before of the first instruction
+     (define live-afters (cdr lives))
+     (define new-ss (for/list ([inst ss] [live-after live-afters])
+                      ((build-interference-instr live-after G) inst)))
+     (define new-info (dict-remove info 'lives))
+     (Block new-info new-ss)]
+    [else (error "R1-reg/build-interference-block unhandled" ast)]))
+
+(define (build-interference ast)
+  (verbose "build-interference " ast)
+  (match ast
+    [(X86Program info Blocks)
+     (define locals (dict-ref info 'locals))
+     (define G (undirected-graph '()))
+     (for ([v locals])
+       (add-vertex! G v))
+     (define new-Blocks
+       (for/list ([(label block) (in-dict Blocks)])
+         (cons label (build-interference-block block G))))
+     (print-dot G "./interfere.dot")
+     (define new-info (dict-set info 'conficts G))
+     (X86Program new-info new-Blocks)]))
+
 ;(define (build-interference ast)
 ;  (verbose "build-interference " ast)
 ;  (match ast
@@ -443,17 +460,223 @@
 ;     (define new-info (dict-set info 'conficts G))
 ;     (Program new-info (CFG new-CFG))]))
 
+;(define interference-test
+;  (lambda (ast)
+;    (match ast
+;      [(X86Program info (list (cons 'start block)))
+;       ;;(printf "~a " info)])))
+;       (printf "~a " (dict-ref info 'locals))])))
+
+(define interference-test
+  (lambda (ast)
+    (match ast
+      [(X86Program info Blocks)
+       ;;(printf "~a " info)])))
+       (printf "~a \n" (dict-ref info 'locals))
+       (printf "block is ~a \n" (dict-ref Blocks 'start))
+       (define new-Blocks
+         (for/list ([(label block) (in-dict Blocks)])
+           (cons label block)))
+       (printf "new blocks is ~a \n" new-Blocks)])))
+
+;(dict-ref
+;   (list (list 'lives (set) (set 'a708913) (set 'b708914) (set) (set)))
+;   'lives)
+      
+
+;(X86Program
+; '((locals a708913 b708914) (locals-types (b708914 . Integer) (a708913 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    (list (list 'lives (set) (set 'a708913) (set 'b708914) (set) (set)))
+;    (list
+;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
+;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
+;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
+;     (Jmp 'conclusion))))))
+
+;(define for/list-test
+;  (lambda (s)
+;    s))
+;
+;(for/list ([i '(a b c)])
+;  i)
+;  ;;(for/list-test i))
+
 
 ;;===========
 ;; build-move-graph: pseudo-x86* -> pseudo-x86*
 ;; *annotate program with move graph
 
-;(define/public (build-move-graph-instr G)
-;  (lambda (ast)
-;    (match ast
-;      [(Instr 'movq (list (Var s) (Var d)))
-;       (if use-move-biasing
-;           ...)])))
+(define/public (build-move-graph-instr G)
+  (lambda (ast)
+    (match ast
+      [(Instr 'movq (list (Var s) (Var d)))
+       (if use-move-biasing
+           (add-edge! G s d)
+           '())
+       ast]
+      [else ast])))
+
+(define/public (build-move-block ast MG)
+  (match ast
+    [(Block info ss)
+     (define new-ss
+       (if use-move-biasing
+           (let ([nss (for/list ([inst ss])
+                        ((build-move-graph-instr MG) inst))])
+             (print-dot MG "./move.dot")
+             nss)
+           ss))
+     (Block info new-ss)]
+    [else
+     (error "R1-reg/build-move-block unhandled" ast)]))
+
+(define/public (build-move-graph ast)
+  (match ast
+    [(Program info (CFG cfg))
+     ;; (define MG (make-graph (dict-ref iinfo 'locals)))
+     (define MG (undirected-graphj '()))
+     (for ([v (dict-ref info 'locals)])
+       (add-vertex! MG v))
+
+     (define new-CFG
+       (for/list ([(label block) (in-dict cfg)])
+         (cons label (build-move-block block MG))))
+     (define new-info (dict-set info 'move-graph MG))
+     (Program new-info (CFG new-CFG))]))
+
+;; ===========
+;; allocate-registers: pseudo-x86 -> pseudo-x86
+;; Replaces variables with registers and stack locations
+;; using graph coloring based on Suduko heuristics
+;; This pass encompasses assign-homes
+
+
+(define/public (valid-color c v unavil-colors info)
+  (not (set-member? unavail-colors c)))
+
+(define/public (choose-color v unavail-colors move-related info)
+  (define n (num-registers-for-alloc))
+  (define biased-selection
+    (for/first ([c move-related]
+                #:when (valid-color c v unavail-colors info))
+      c))
+  (define unbiased-selection
+    (for/list ([(c (in-naturals))]
+                #:when (valid-color c v unavail-colors info))
+      c))
+  (cond
+    [(and biased-selection
+          (or (< biased-selection n) (>= unbiased-selection n)))
+     (vomit "move-biased, for ~a chose ~a" v biased-selection)
+     biased-selection]
+    [else unbiased-selection]))
+
+(inherit variable-size)
+
+;; Take into account space for the callee saved registers
+(define/override (first-offset num-used-callee)
+  (+ (super first-offset num-used-callee)
+     (* num-used-callee (variable-size))))
+
+(define/public (init-num-spills) 0)
+
+(define/public (update-num-spills spills c)
+  (cond
+    [(>= c (num-registers-for-alloc))
+     (add1 spills)]
+    [else spills]))
+
+
+(define/public (color-graph IG MG info) ;; DSATUR algorithm
+  (define locals (dict-ref info 'locals))
+  (define num-spills (init-num-spills))
+  (define unavail-colors (make-hash));; pencil marks
+  (define (compare u v);; compare saturation
+    (>= (set-count (hash-ref unavail-colors u))
+        (set-count (hash-ref unavail-colors v))))
+  (define Q (make-pqueue compare))
+  (define pq-node (make-hash)) ;; maps vars to priority queue nodes
+  (define color (make-hash)) ;; maps vars to colors (natural nums)
+  (for ([x locals])
+    ;; mark neighboring register colors as unavailable
+    (define adj-reg
+      (filter (lambda (u) (set-member? registers u))
+              (get-neighbors IG x)))
+    (define adj-colors (list->set (map register->color adj-reg)))
+    (hash-set! unavail-colors x adj-colors)
+    ;; add variables to priority queue
+    (hash-set! pq-node x (pqueue-push! Q x)))
+  ;; Graph coloring
+  (while (> (pqueue-count Q) 0)
+         (define v (pqueue-pop! Q))
+         (define move-related
+           (sort (filter (lambda (x) (>= x 0))
+                         (map (lambda (k) (hash-ref color k -1))
+                              (get-neighbors MG v)))
+                 <))
+         (define c (choose-color v (hash-ref unavail-colors v)
+                                 move-related info))
+         (vervose "color of ~a is ~a" v c)
+         (set! num-spills (update-num-spills num-spills c))
+         (hash-set! color v c)
+         ;; mark this color as unavailable for neighbors
+         (for ([u (in-neighbors IG v)])
+           (when (not (set-member? register u))
+             (hash-set! unavail-colors u
+                        (set-add (hash-ref unavail-colors u) c))
+             (pqueue-decrease-key! Q (hash-ref pq-node u)))))
+  (values color num-spills))
+         
+(define/public (identify-home num-used-callee c)
+  (define n (num-registers-for-alloc))
+  (cond
+    [(< c n)
+     (Reg (color->register c))]
+    [else
+     (Deref 'rbp (- (+ (first-offset num-used-callee)
+                       (* (- c n) (variable-size)))))]))
+
+(define (callee-color? c)
+  (and (< c (num-registers-for-alloc))
+       (set-member? callee-save (color->register c))))
+
+(define/public (used-callee-reg locals color)
+  (for/set ([x locals] #:when (callee-color? (hash-ref color x)))
+    (color->register (hash-ref color x))))
+
+(define/public (num-used-callee locals color)
+  (set-count (used-callee-reg locals color)))
+
+(define/public (allocate-registers ast)
+  (match ast
+    [(Program info (CFG G))
+     (define locals (dict-ref info 'locals))
+     (define IG (dict-ref info 'conflicts))
+     (define MG (dict-ref info 'move-graph))
+     (define-values (color num-spills) (color-graph IG MG info))
+     (define homes
+       (for/hash ([x locals])
+         (define home (identify-home (num-used-callee locals color)
+                                     (hash-ref color x)))
+         (vomit "home of ~a is ~a" x home)
+         (values x home)))
+
+     (define new-CFG
+       (for/list ([(label block) (in-dict G)])
+         (cons label (assign-homes-block homes) block)))
+
+     (define new-info (dict-remove-all
+                       (dict-set (dict-set info 'num-spills num-spills)
+                                 'used-callee
+                                 (used-callee-reg locals color))
+                       (list 'locals 'conflicts 'move-graph)))
+     (Program new-info (CFG new-CFG))]))
+  
+                  
 
 
 
