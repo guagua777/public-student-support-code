@@ -10,6 +10,7 @@
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
+(require "priority_queue.rkt")
 
 (provide (all-defined-out))
 
@@ -404,6 +405,7 @@
            (cond [(equal? v u)
                   (verbose "skip self edge on " v)]
                  [else
+                  ;; 这个地方为什么要加边？ caller不是可以随便分配吗？
                   (verbose "adding edge " u v)
                   (add-edge! G u v)])))
        ast]
@@ -442,7 +444,7 @@
        (for/list ([(label block) (in-dict Blocks)])
          (cons label (build-interference-block block G))))
      (print-dot G "./interfere.dot")
-     (define new-info (dict-set info 'conficts G))
+     (define new-info (dict-set info 'conflicts G))
      (X86Program new-info new-Blocks)]))
 
 ;(define (build-interference ast)
@@ -457,7 +459,7 @@
 ;       (for/list ([(label block) (in-dict cfg)])
 ;         (cons label (build-interference-block block G))))
 ;     (print-dot G "./interfere.dot")
-;     (define new-info (dict-set info 'conficts G))
+;     (define new-info (dict-set info 'conflicts G))
 ;     (Program new-info (CFG new-CFG))]))
 
 ;(define interference-test
@@ -510,7 +512,9 @@
 ;; build-move-graph: pseudo-x86* -> pseudo-x86*
 ;; *annotate program with move graph
 
-(define/public (build-move-graph-instr G)
+(define use-move-biasing #f)
+
+(define (build-move-graph-instr G)
   (lambda (ast)
     (match ast
       [(Instr 'movq (list (Var s) (Var d)))
@@ -520,7 +524,7 @@
        ast]
       [else ast])))
 
-(define/public (build-move-block ast MG)
+(define (build-move-block ast MG)
   (match ast
     [(Block info ss)
      (define new-ss
@@ -534,19 +538,48 @@
     [else
      (error "R1-reg/build-move-block unhandled" ast)]))
 
-(define/public (build-move-graph ast)
+(define (build-move-graph ast)
   (match ast
-    [(Program info (CFG cfg))
+    [(X86Program info Blocks)
      ;; (define MG (make-graph (dict-ref iinfo 'locals)))
-     (define MG (undirected-graphj '()))
+     (define MG (undirected-graph '()))
      (for ([v (dict-ref info 'locals)])
        (add-vertex! MG v))
 
-     (define new-CFG
-       (for/list ([(label block) (in-dict cfg)])
+     (define new-Blocks
+       (for/list ([(label block) (in-dict Blocks)])
          (cons label (build-move-block block MG))))
      (define new-info (dict-set info 'move-graph MG))
-     (Program new-info (CFG new-CFG))]))
+     (X86Program new-info new-Blocks)]))
+
+;(define/public (build-move-graph ast)
+;  (match ast
+;    [(Program info (CFG cfg))
+;     ;; (define MG (make-graph (dict-ref iinfo 'locals)))
+;     (define MG (undirected-graphj '()))
+;     (for ([v (dict-ref info 'locals)])
+;       (add-vertex! MG v))
+;
+;     (define new-CFG
+;       (for/list ([(label block) (in-dict cfg)])
+;         (cons label (build-move-block block MG))))
+;     (define new-info (dict-set info 'move-graph MG))
+;     (Program new-info (CFG new-CFG))]))
+
+
+;(build-move-graph (X86Program
+; '((locals a708913 b708914)
+;   (locals-types (b708914 . Integer) (a708913 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
+;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
+;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
+;     (Jmp 'conclusion)))))))
 
 ;; ===========
 ;; allocate-registers: pseudo-x86 -> pseudo-x86
@@ -555,83 +588,119 @@
 ;; This pass encompasses assign-homes
 
 
-(define/public (valid-color c v unavil-colors info)
+(define (valid-color c v unavail-colors info)
   (not (set-member? unavail-colors c)))
 
-(define/public (choose-color v unavail-colors move-related info)
+(define (choose-color v unavail-colors move-related info)
   (define n (num-registers-for-alloc))
   (define biased-selection
     (for/first ([c move-related]
                 #:when (valid-color c v unavail-colors info))
       c))
   (define unbiased-selection
-    (for/list ([(c (in-naturals))]
+    (for/list ([c (in-naturals)]
                 #:when (valid-color c v unavail-colors info))
       c))
   (cond
     [(and biased-selection
           (or (< biased-selection n) (>= unbiased-selection n)))
-     (vomit "move-biased, for ~a chose ~a" v biased-selection)
+     ;;(vomit "move-biased, for ~a chose ~a" v biased-selection)
      biased-selection]
     [else unbiased-selection]))
 
-(inherit variable-size)
+;; (inherit variable-size)
+(define variable-size 8)
 
 ;; Take into account space for the callee saved registers
-(define/override (first-offset num-used-callee)
-  (+ (super first-offset num-used-callee)
-     (* num-used-callee (variable-size))))
+;(define (first-offset num-used-callee)
+;  (+ (super first-offset num-used-callee)
+;     (* num-used-callee (variable-size))))
 
-(define/public (init-num-spills) 0)
+(define (first-offset num-used-callee)
+  (* num-used-callee (variable-size)))
 
-(define/public (update-num-spills spills c)
+(define (init-num-spills) 0)
+
+(define (update-num-spills spills c)
   (cond
     [(>= c (num-registers-for-alloc))
      (add1 spills)]
     [else spills]))
 
+;; 1. 初始，冲突图
+;; 2. 将图中已经存在的寄存器染色（分配数字），此时变量还没有被染色，更新跟已经存在的寄存器相邻的顶点的饱和度
+;; 3. 选择最大饱和度的顶点，选择最小的颜色进行染色，更新跟该顶点相邻的结点的饱和度
+;; 4. 重复上一步
+;; 5. 根据染色分配寄存器
+;; 假设现在只有一个寄存器可以分配rcx
+;;--------------------
+;; 带move的
+;; 1. 初始，冲突图和move图
+;; 2. 将图中已经存在的寄存器染色(分配数字)，更新跟已经存在的寄存器相邻的顶点的饱和度
+;; 3. 选择最大饱和度的顶点，如果有多个，选择move图中存在的顶点，染跟move相关顶点相同的颜色，更新相邻结点饱和度
+;; 4. 重复上一步
+;; 5. 根据染色分配寄存器
 
-(define/public (color-graph IG MG info) ;; DSATUR algorithm
+;; 三个hash
+;; 一个指定饱和度
+;; 一个指定优先级队列中的node
+;; 一个指定相应的颜色
+
+;; IG 冲突图
+;; MG move图
+(define (color-graph IG MG info) ;; DSATUR algorithm
   (define locals (dict-ref info 'locals))
   (define num-spills (init-num-spills))
   (define unavail-colors (make-hash));; pencil marks
+  ;; 不可用的color数，优先级队列
   (define (compare u v);; compare saturation
     (>= (set-count (hash-ref unavail-colors u))
         (set-count (hash-ref unavail-colors v))))
   (define Q (make-pqueue compare))
   (define pq-node (make-hash)) ;; maps vars to priority queue nodes
   (define color (make-hash)) ;; maps vars to colors (natural nums)
+
+  ;; 完成第一步，将图中已经存在的寄存器染色(分配数字),更新跟已经存在的寄存器相邻的顶点的饱和度
   (for ([x locals])
     ;; mark neighboring register colors as unavailable
+    ;; 找出冲突图中已经存在的寄存器
     (define adj-reg
       (filter (lambda (u) (set-member? registers u))
               (get-neighbors IG x)))
+    ;; 先对已经存在的寄存器进行染色
     (define adj-colors (list->set (map register->color adj-reg)))
+    ;; 标注x的饱和度（不可用颜色的集合）
     (hash-set! unavail-colors x adj-colors)
     ;; add variables to priority queue
     (hash-set! pq-node x (pqueue-push! Q x)))
+
+  ;; 染色
   ;; Graph coloring
   (while (> (pqueue-count Q) 0)
+         ;; 最大饱和度的？这个地方是否应该找出多个
          (define v (pqueue-pop! Q))
+         ;; 找出与v有move关系，且已经染色的
          (define move-related
            (sort (filter (lambda (x) (>= x 0))
                          (map (lambda (k) (hash-ref color k -1))
                               (get-neighbors MG v)))
                  <))
+         ;; 染色
          (define c (choose-color v (hash-ref unavail-colors v)
                                  move-related info))
-         (vervose "color of ~a is ~a" v c)
+         (verbose "color of ~a is ~a" v c)
+         ;; 统计spill的数量
          (set! num-spills (update-num-spills num-spills c))
          (hash-set! color v c)
          ;; mark this color as unavailable for neighbors
          (for ([u (in-neighbors IG v)])
-           (when (not (set-member? register u))
+           (when (not (set-member? registers u))
              (hash-set! unavail-colors u
                         (set-add (hash-ref unavail-colors u) c))
              (pqueue-decrease-key! Q (hash-ref pq-node u)))))
   (values color num-spills))
          
-(define/public (identify-home num-used-callee c)
+(define (identify-home num-used-callee c)
   (define n (num-registers-for-alloc))
   (cond
     [(< c n)
@@ -644,16 +713,16 @@
   (and (< c (num-registers-for-alloc))
        (set-member? callee-save (color->register c))))
 
-(define/public (used-callee-reg locals color)
+(define (used-callee-reg locals color)
   (for/set ([x locals] #:when (callee-color? (hash-ref color x)))
     (color->register (hash-ref color x))))
 
-(define/public (num-used-callee locals color)
+(define (num-used-callee locals color)
   (set-count (used-callee-reg locals color)))
 
-(define/public (allocate-registers ast)
+(define (allocate-registers ast)
   (match ast
-    [(Program info (CFG G))
+    [(X86Program info Blocks)
      (define locals (dict-ref info 'locals))
      (define IG (dict-ref info 'conflicts))
      (define MG (dict-ref info 'move-graph))
@@ -662,11 +731,11 @@
        (for/hash ([x locals])
          (define home (identify-home (num-used-callee locals color)
                                      (hash-ref color x)))
-         (vomit "home of ~a is ~a" x home)
+         ;;(vomit "home of ~a is ~a" x home)
          (values x home)))
 
-     (define new-CFG
-       (for/list ([(label block) (in-dict G)])
+     (define new-Blocks
+       (for/list ([(label block) (in-dict Blocks)])
          (cons label (assign-homes-block homes) block)))
 
      (define new-info (dict-remove-all
@@ -674,9 +743,118 @@
                                  'used-callee
                                  (used-callee-reg locals color))
                        (list 'locals 'conflicts 'move-graph)))
-     (Program new-info (CFG new-CFG))]))
-  
+     (X86Program new-info new-Blocks)]))
+
+
+;(define/public (allocate-registers ast)
+;  (match ast
+;    [(Program info (CFG G))
+;     (define locals (dict-ref info 'locals))
+;     (define IG (dict-ref info 'conflicts))
+;     (define MG (dict-ref info 'move-graph))
+;     (define-values (color num-spills) (color-graph IG MG info))
+;     (define homes
+;       (for/hash ([x locals])
+;         (define home (identify-home (num-used-callee locals color)
+;                                     (hash-ref color x)))
+;         (vomit "home of ~a is ~a" x home)
+;         (values x home)))
+;
+;     (define new-CFG
+;       (for/list ([(label block) (in-dict G)])
+;         (cons label (assign-homes-block homes) block)))
+;
+;     (define new-info (dict-remove-all
+;                       (dict-set (dict-set info 'num-spills num-spills)
+;                                 'used-callee
+;                                 (used-callee-reg locals color))
+;                       (list 'locals 'conflicts 'move-graph)))
+;     (Program new-info (CFG new-CFG))]))
                   
+
+;(allocate-registers  (build-interference (build-move-graph
+;   (uncover-live (X86Program
+; '((locals a708913 b708914)
+;   (locals-types (b708914 . Integer) (a708913 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
+;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
+;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
+;     (Jmp 'conclusion))))))))))
+
+;> (reg-colors)
+;'((r14 . 10)
+;  (r13 . 9)
+;  (r12 . 8)
+;  (rbx . 7)
+;  (r10 . 6)
+;  (r9 . 5)
+;  (r8 . 4)
+;  (rdi . 3)
+;  (rsi . 2)
+;  (rdx . 1)
+;  (rcx . 0)
+;  (rax . -1)
+;  (rsp . -2)
+;  (rbp . -3)
+;  (r11 . -4)
+;  (r15 . -5)
+;  (__flag . -6))
+;> (use-minimal-set-of-registers! #t)
+;> (reg-colors)
+;'((rbx . 2)
+;  (rdi . 1)
+;  (rsi . 0)
+;  (rax . -1)
+;  (rsp . -2)
+;  (rbp . -3)
+;  (r11 . -4)
+;  (r15 . -5)
+;  (__flag . -6))
+;> (register->color 'rbx)
+;2
+;>
+
+; (let ([iii 10])
+;    (while (> iii 0)
+;           (printf "~a \n" iii)
+;           (set! iii (- iii 1))))
+
+
+(X86Program
+ '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
+   (locals-types
+    (w1910088 . Integer)
+    (v1910087 . Integer)
+    (tmp1910092 . Integer)
+    (z1910091 . Integer)
+    (y1910090 . Integer)
+    (x1910089 . Integer)))
+ (list
+  (cons
+   'start
+   (Block
+    '()
+    (list
+     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
+     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
+     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
+     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
+     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
+     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
+     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
+     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
+     (Instr 'negq (list (Var 'tmp1910092)))
+     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
+     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
+     (Jmp 'conclusion))))))
+
+
 
 
 
