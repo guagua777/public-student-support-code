@@ -512,7 +512,7 @@
 ;; build-move-graph: pseudo-x86* -> pseudo-x86*
 ;; *annotate program with move graph
 
-(define use-move-biasing #f)
+(define use-move-biasing #t)
 
 (define (build-move-graph-instr G)
   (lambda (ast)
@@ -587,18 +587,23 @@
 ;; using graph coloring based on Suduko heuristics
 ;; This pass encompasses assign-homes
 
+(use-minimal-set-of-registers! #t)
 
+;; 不在饱和度中的颜色
 (define (valid-color c v unavail-colors info)
   (not (set-member? unavail-colors c)))
 
+;; unavail-colors为结点v的饱和度
 (define (choose-color v unavail-colors move-related info)
+  ;; 3
   (define n (num-registers-for-alloc))
   (define biased-selection
     (for/first ([c move-related]
                 #:when (valid-color c v unavail-colors info))
       c))
-  (define unbiased-selection
-    (for/list ([c (in-naturals)]
+  (define unbiased-selection    
+    ;;(for/list
+    (for/first ([c (in-naturals)]
                 #:when (valid-color c v unavail-colors info))
       c))
   (cond
@@ -617,7 +622,8 @@
 ;     (* num-used-callee (variable-size))))
 
 (define (first-offset num-used-callee)
-  (* num-used-callee (variable-size)))
+ (+ (* 1 variable-size)
+     (* num-used-callee variable-size))) 
 
 (define (init-num-spills) 0)
 
@@ -679,7 +685,7 @@
   (while (> (pqueue-count Q) 0)
          ;; 最大饱和度的？这个地方是否应该找出多个
          (define v (pqueue-pop! Q))
-         ;; 找出与v有move关系，且已经染色的
+         ;; 找出与v有move关系，且已经染色的，为什么要进行排序？
          (define move-related
            (sort (filter (lambda (x) (>= x 0))
                          (map (lambda (k) (hash-ref color k -1))
@@ -707,7 +713,8 @@
      (Reg (color->register c))]
     [else
      (Deref 'rbp (- (+ (first-offset num-used-callee)
-                       (* (- c n) (variable-size)))))]))
+                       (* (- c n) variable-size))))]))
+                       ;;(* (- c n) (variable-size)))))]))
 
 (define (callee-color? c)
   (and (< c (num-registers-for-alloc))
@@ -720,6 +727,14 @@
 (define (num-used-callee locals color)
   (set-count (used-callee-reg locals color)))
 
+(define (assign-block-info homes)
+  (lambda (b)
+    (match b
+      [(Block info ss)
+       (define new-info (dict-set info 'assign-homes homes))
+       (Block new-info ss)])))
+       
+
 (define (allocate-registers ast)
   (match ast
     [(X86Program info Blocks)
@@ -727,16 +742,22 @@
      (define IG (dict-ref info 'conflicts))
      (define MG (dict-ref info 'move-graph))
      (define-values (color num-spills) (color-graph IG MG info))
+     ;; 分配寄存器or栈
      (define homes
        (for/hash ([x locals])
          (define home (identify-home (num-used-callee locals color)
                                      (hash-ref color x)))
          ;;(vomit "home of ~a is ~a" x home)
+         ;;(printf "home of ~a is ~a \n" x home)
          (values x home)))
 
+     ;;(printf "homes is ~a \n" homes)
+     
      (define new-Blocks
        (for/list ([(label block) (in-dict Blocks)])
-         (cons label (assign-homes-block homes) block)))
+         (cons label ((assign-block-info homes) block))))
+         ;;(cons label block)))     
+         ;;(cons label (assign-homes-block homes) block)))
 
      (define new-info (dict-remove-all
                        (dict-set (dict-set info 'num-spills num-spills)
@@ -826,36 +847,98 @@
 ;           (set! iii (- iii 1))))
 
 
-(X86Program
- '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
-   (locals-types
-    (w1910088 . Integer)
-    (v1910087 . Integer)
-    (tmp1910092 . Integer)
-    (z1910091 . Integer)
-    (y1910090 . Integer)
-    (x1910089 . Integer)))
- (list
-  (cons
-   'start
-   (Block
-    '()
-    (list
-     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
-     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
-     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
-     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
-     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
-     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
-     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
-     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
-     (Instr 'negq (list (Var 'tmp1910092)))
-     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
-     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
-     (Jmp 'conclusion))))))
+;(X86Program
+; '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
+;   (locals-types
+;    (w1910088 . Integer)
+;    (v1910087 . Integer)
+;    (tmp1910092 . Integer)
+;    (z1910091 . Integer)
+;    (y1910090 . Integer)
+;    (x1910089 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
+;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
+;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
+;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
+;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
+;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
+;     (Instr 'negq (list (Var 'tmp1910092)))
+;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
+;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
+;     (Jmp 'conclusion))))))
 
 
-
+;(allocate-registers  (build-interference (build-move-graph
+;   (uncover-live (X86Program
+; '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
+;   (locals-types
+;    (w1910088 . Integer)
+;    (v1910087 . Integer)
+;    (tmp1910092 . Integer)
+;    (z1910091 . Integer)
+;    (y1910090 . Integer)
+;    (x1910089 . Integer)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
+;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
+;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
+;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
+;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
+;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
+;     (Instr 'negq (list (Var 'tmp1910092)))
+;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
+;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
+;     (Jmp 'conclusion))))))))))
+;home of v1910087 is #<Reg: rsi> 
+;home of w1910088 is #<Reg: rbx> 
+;home of x1910089 is #<Reg: rsi> 
+;home of y1910090 is #<Reg: rsi> 
+;home of z1910091 is #<Reg: rdi> 
+;home of tmp1910092 is #<Reg: rsi> 
+;(X86Program
+; (list
+;  '(locals-types
+;    (w1910088 . Integer)
+;    (v1910087 . Integer)
+;    (tmp1910092 . Integer)
+;    (z1910091 . Integer)
+;    (y1910090 . Integer)
+;    (x1910089 . Integer))
+;  '(num-spills . 0)
+;  (cons 'used-callee (set 'rbx)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
+;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
+;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
+;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
+;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
+;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
+;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
+;     (Instr 'negq (list (Var 'tmp1910092)))
+;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
+;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
+;     (Jmp 'conclusion))))))
 
 
 ;; =====================================================
