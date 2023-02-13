@@ -4,7 +4,9 @@
 (require "utilities.rkt")
 (require "interp-Lvar.rkt")
 (require "interp-Cvar.rkt")
+(require "interp-Lif.rkt")
 (require "interp.rkt")
+(require "type-check-Lif.rkt")
 (require "compiler.rkt")
 (debug-level 1)
 ;; (AST-output-syntax 'concrete-syntax)
@@ -23,10 +25,14 @@
         (lambda (p)
           (string=? r (car (string-split p "_"))))
         all-tests)))
+;;(interp-tests "var" #f compiler-passes interp-Lvar "var_test" (tests-for "var"))
 
-(interp-tests "var" #f compiler-passes interp-Lvar "var_test" (tests-for "var"))
+;(interp-tests "if" #f '() interp-Lif "cond_test" (tests-for "cond"))
+
+(interp-tests "if" type-check-Lif '() interp-Lif "cond_test" (tests-for "cond"))
+
 
 ;; Uncomment the following when all the passes are complete to
 ;; test the final x86 code.
-(compiler-tests "var" #f compiler-passes "var_test" (tests-for "var"))
+;; (compiler-tests "var" #f compiler-passes "var_test" (tests-for "var"))
 

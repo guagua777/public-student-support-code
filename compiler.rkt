@@ -7,6 +7,7 @@
 (require "interp-Cvar.rkt")
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
+(require "type-check-Lif.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
@@ -98,11 +99,6 @@
      (values (Var tmp)
              (append ss `((,tmp . ,(Prim op new-es)))))]))
 
-;(define (make-lets bs e)
-;  (match bs
-;    [`() e]
-;    [`((,x . ,e^) . ,bs^)
-;     (Let x e^ (make-lets bs^ e))]))
 
 ;; rco-exp : exp -> exp
 ;; 最后会变成一个let
@@ -125,19 +121,6 @@
   (match p
     [(Program info e)
      (Program info (rco-exp e))]))
-
-;(Program
-; '()
-; (Let
-;  'x2019415
-;  (Int 10)
-;  (Let
-;   'y2019416
-;   (Let
-;    'tmp2019417
-;    (Prim '- (list (Int 100)))
-;    (Prim '+ (list (Int 42) (Var 'tmp2019417))))
-;   (Prim '+ (list (Var 'x2019415) (Var 'y2019416))))))
 
 ;; tail ::= (Return exp) | (Seq stmt tail)
 ;; The explicate_tail function takes an exp in LVar as input
@@ -331,53 +314,6 @@
      (define new-block (uncover-live-block block (set)))
      (X86Program info (list (cons 'start new-block)))]))
 
-;; (define h #hash((a . "apple") (b . "banana")))
-;; (for/list ([(k v) (in-dict h)])
-;;   (format "~a = ~s" k v))
-
-;(for/list ([i '(1 2 3)]
-;             [j "abc"]
-;             #:break (not (odd? i))
-;             [k #(#t #f)])
-;    (cons i j))
-
-;(define test-uncover-match
-;  (lambda (x86p)
-;    (match x86p
-;      [(X86Program info (list (cons 'start bs)))
-;       (printf "~a " bs)]
-;      [else (error "no match" x86p)])))
-  
-
-;; the result of the instruction selection
-;(X86Program
-; '((locals a708913 b708914)
-;   (locals-types (b708914 . Integer) (a708913 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
-;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
-;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
-;     (Jmp 'conclusion))))))
-
-
-;(uncover-live (X86Program
-; '((locals a708913 b708914)
-;   (locals-types (b708914 . Integer) (a708913 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
-;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
-;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
-;     (Jmp 'conclusion)))))))
 
 ;;==========
 ;; 55 minutes
@@ -447,27 +383,6 @@
      (define new-info (dict-set info 'conflicts G))
      (X86Program new-info new-Blocks)]))
 
-;(define (build-interference ast)
-;  (verbose "build-interference " ast)
-;  (match ast
-;    [(Program info (CFG cfg))
-;     (define locals (dict-ref info 'locals))
-;     (define G (undirected-graph '()))
-;     (for ([v locals])
-;       (add-vertex! G v))
-;     (define new-CFG
-;       (for/list ([(label block) (in-dict cfg)])
-;         (cons label (build-interference-block block G))))
-;     (print-dot G "./interfere.dot")
-;     (define new-info (dict-set info 'conflicts G))
-;     (Program new-info (CFG new-CFG))]))
-
-;(define interference-test
-;  (lambda (ast)
-;    (match ast
-;      [(X86Program info (list (cons 'start block)))
-;       ;;(printf "~a " info)])))
-;       (printf "~a " (dict-ref info 'locals))])))
 
 (define interference-test
   (lambda (ast)
@@ -480,32 +395,6 @@
          (for/list ([(label block) (in-dict Blocks)])
            (cons label block)))
        (printf "new blocks is ~a \n" new-Blocks)])))
-
-;(dict-ref
-;   (list (list 'lives (set) (set 'a708913) (set 'b708914) (set) (set)))
-;   'lives)
-      
-
-;(X86Program
-; '((locals a708913 b708914) (locals-types (b708914 . Integer) (a708913 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    (list (list 'lives (set) (set 'a708913) (set 'b708914) (set) (set)))
-;    (list
-;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
-;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
-;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
-;     (Jmp 'conclusion))))))
-
-;(define for/list-test
-;  (lambda (s)
-;    s))
-;
-;(for/list ([i '(a b c)])
-;  i)
-;  ;;(for/list-test i))
 
 
 ;;===========
@@ -552,34 +441,6 @@
      (define new-info (dict-set info 'move-graph MG))
      (X86Program new-info new-Blocks)]))
 
-;(define/public (build-move-graph ast)
-;  (match ast
-;    [(Program info (CFG cfg))
-;     ;; (define MG (make-graph (dict-ref iinfo 'locals)))
-;     (define MG (undirected-graphj '()))
-;     (for ([v (dict-ref info 'locals)])
-;       (add-vertex! MG v))
-;
-;     (define new-CFG
-;       (for/list ([(label block) (in-dict cfg)])
-;         (cons label (build-move-block block MG))))
-;     (define new-info (dict-set info 'move-graph MG))
-;     (Program new-info (CFG new-CFG))]))
-
-
-;(build-move-graph (X86Program
-; '((locals a708913 b708914)
-;   (locals-types (b708914 . Integer) (a708913 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
-;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
-;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
-;     (Jmp 'conclusion)))))))
 
 ;; ===========
 ;; allocate-registers: pseudo-x86 -> pseudo-x86
@@ -767,229 +628,6 @@
      (X86Program new-info new-Blocks)]))
 
 
-;(define/public (allocate-registers ast)
-;  (match ast
-;    [(Program info (CFG G))
-;     (define locals (dict-ref info 'locals))
-;     (define IG (dict-ref info 'conflicts))
-;     (define MG (dict-ref info 'move-graph))
-;     (define-values (color num-spills) (color-graph IG MG info))
-;     (define homes
-;       (for/hash ([x locals])
-;         (define home (identify-home (num-used-callee locals color)
-;                                     (hash-ref color x)))
-;         (vomit "home of ~a is ~a" x home)
-;         (values x home)))
-;
-;     (define new-CFG
-;       (for/list ([(label block) (in-dict G)])
-;         (cons label (assign-homes-block homes) block)))
-;
-;     (define new-info (dict-remove-all
-;                       (dict-set (dict-set info 'num-spills num-spills)
-;                                 'used-callee
-;                                 (used-callee-reg locals color))
-;                       (list 'locals 'conflicts 'move-graph)))
-;     (Program new-info (CFG new-CFG))]))
-                  
-
-;(allocate-registers  (build-interference (build-move-graph
-;   (uncover-live (X86Program
-; '((locals a708913 b708914)
-;   (locals-types (b708914 . Integer) (a708913 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 42) (Var 'a708913)))
-;     (Instr 'movq (list (Var 'a708913) (Var 'b708914)))
-;     (Instr 'movq (list (Var 'b708914) (Reg 'rax)))
-;     (Jmp 'conclusion))))))))))
-
-;> (reg-colors)
-;'((r14 . 10)
-;  (r13 . 9)
-;  (r12 . 8)
-;  (rbx . 7)
-;  (r10 . 6)
-;  (r9 . 5)
-;  (r8 . 4)
-;  (rdi . 3)
-;  (rsi . 2)
-;  (rdx . 1)
-;  (rcx . 0)
-;  (rax . -1)
-;  (rsp . -2)
-;  (rbp . -3)
-;  (r11 . -4)
-;  (r15 . -5)
-;  (__flag . -6))
-;> (use-minimal-set-of-registers! #t)
-;> (reg-colors)
-;'((rbx . 2)
-;  (rdi . 1)
-;  (rsi . 0)
-;  (rax . -1)
-;  (rsp . -2)
-;  (rbp . -3)
-;  (r11 . -4)
-;  (r15 . -5)
-;  (__flag . -6))
-;> (register->color 'rbx)
-;2
-;>
-
-; (let ([iii 10])
-;    (while (> iii 0)
-;           (printf "~a \n" iii)
-;           (set! iii (- iii 1))))
-
-
-;(X86Program
-; '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
-;   (locals-types
-;    (w1910088 . Integer)
-;    (v1910087 . Integer)
-;    (tmp1910092 . Integer)
-;    (z1910091 . Integer)
-;    (y1910090 . Integer)
-;    (x1910089 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
-;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
-;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
-;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
-;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
-;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
-;     (Instr 'negq (list (Var 'tmp1910092)))
-;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
-;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
-;     (Jmp 'conclusion))))))
-
-
-;(allocate-registers  (build-interference (build-move-graph
-;   (uncover-live (X86Program
-; '((locals v1910087 w1910088 x1910089 y1910090 z1910091 tmp1910092)
-;   (locals-types
-;    (w1910088 . Integer)
-;    (v1910087 . Integer)
-;    (tmp1910092 . Integer)
-;    (z1910091 . Integer)
-;    (y1910090 . Integer)
-;    (x1910089 . Integer)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
-;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
-;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
-;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
-;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
-;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
-;     (Instr 'negq (list (Var 'tmp1910092)))
-;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
-;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
-;     (Jmp 'conclusion))))))))))
-;home of v1910087 is #<Reg: rsi> 
-;home of w1910088 is #<Reg: rbx> 
-;home of x1910089 is #<Reg: rsi> 
-;home of y1910090 is #<Reg: rsi> 
-;home of z1910091 is #<Reg: rdi> 
-;home of tmp1910092 is #<Reg: rsi> 
-;(X86Program
-; (list
-;  '(locals-types
-;    (w1910088 . Integer)
-;    (v1910087 . Integer)
-;    (tmp1910092 . Integer)
-;    (z1910091 . Integer)
-;    (y1910090 . Integer)
-;    (x1910089 . Integer))
-;  '(num-spills . 0)
-;  (cons 'used-callee (set 'rbx)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
-;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
-;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
-;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
-;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
-;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
-;     (Instr 'negq (list (Var 'tmp1910092)))
-;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
-;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
-;     (Jmp 'conclusion))))))
-
-
-
-;; info中存储了：
-;; num-spills
-;; used-callee
-;(X86Program
-; (list
-;  '(locals-types
-;    (w1910088 . Integer)
-;    (v1910087 . Integer)
-;    (tmp1910092 . Integer)
-;    (z1910091 . Integer)
-;    (y1910090 . Integer)
-;    (x1910089 . Integer))
-;  '(num-spills . 0)
-;  (cons 'used-callee (set 'rbx)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    (list
-;     (cons
-;      'assign-homes
-;      (hash
-;       'tmp1910092
-;       (Reg 'rsi)
-;       'v1910087
-;       (Reg 'rsi)
-;       'w1910088
-;       (Reg 'rbx)
-;       'x1910089
-;       (Reg 'rsi)
-;       'y1910090
-;       (Reg 'rsi)
-;       'z1910091
-;       (Reg 'rdi))))
-;    (list
-;     (Instr 'movq (list (Imm 1) (Var 'v1910087)))
-;     (Instr 'movq (list (Imm 42) (Var 'w1910088)))
-;     (Instr 'movq (list (Var 'v1910087) (Var 'x1910089)))
-;     (Instr 'addq (list (Imm 7) (Var 'x1910089)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'y1910090)))
-;     (Instr 'movq (list (Var 'x1910089) (Var 'z1910091)))
-;     (Instr 'addq (list (Var 'w1910088) (Var 'z1910091)))
-;     (Instr 'movq (list (Var 'y1910090) (Var 'tmp1910092)))
-;     (Instr 'negq (list (Var 'tmp1910092)))
-;     (Instr 'movq (list (Var 'z1910091) (Reg 'rax)))
-;     (Instr 'addq (list (Var 'tmp1910092) (Reg 'rax)))
-;     (Jmp 'conclusion))))))
-
 
 ;; =====================================================
 
@@ -1084,21 +722,6 @@
                                  (Instr 'popq (list (Deref 'rbp 0)))
                                  (Retq))))))
 
-;(define make-prelude
-;  (lambda ()
-;    (cons 'main
-;                (Block '() (list (Instr 'pushq (list 'rbp))
-;                                 (Instr 'movq (list 'rsp 'rbp))
-;                                 (Instr 'subq (list (Imm 16) 'rsp))
-;                                 (Jmp 'start))))))
-;
-;(define make-conclusion
-;  (lambda ()
-;    (cons 'conclusion
-;                (Block '() (list (Instr 'addq (list (Imm 16) 'rsp))
-;                                 (Instr 'popq (list 'rbp))
-;                                 (Retq))))))
-
 (define (prelude-and-conclusion p)
   (match p
     [(X86Program info `((start . ,bs)))
@@ -1116,73 +739,14 @@
 ;; Note that your compiler file (the file that defines the passes)
 ;; must be named "compiler.rkt"
 (define compiler-passes
-  `( ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
+  `( ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lif)
      ;; Uncomment the following passes as you finish them.
-     ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
-     ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ("instruction selection" ,select-instructions ,interp-x86-0)
-     ("assign homes" ,assign-homes ,interp-x86-0)
-     ("patch instructions" ,patch-instructions ,interp-x86-0)
-     ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
+     ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lif)
+     ;;("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ;;("instruction selection" ,select-instructions ,interp-x86-0)
+     ;;("assign homes" ,assign-homes ,interp-x86-0)
+     ;;("patch instructions" ,patch-instructions ,interp-x86-0)
+     ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
 
-
-;; patch-instructions : psuedo-x86 -> x86
-;(define (patch-instructions p)
-;  (error "TODO: code goes here (patch-instructions)"))
-
-;
-;(define (print-x86-imm e)
-;  (match e
-;    [(Deref reg i)
-;     (format "~a(%~a)" i reg)]
-;    [(Imm n) (format "$~a" n)]
-;    [(Reg r) (format "%~a" r)]
-;    ))
-;
-;(define (print-x86-instr e)
-;  (verbose "R1/print-x86-instr" e)
-;  (match e
-;    [(Callq f)
-;     (format "\tcallq\t~a\n" (label-name (symbol->string f)))]
-;    [(Jmp label) (format "\tjmp ~a\n" (label-name label))]
-;    [(Instr instr-name (list s d))
-;     (format "\t~a\t~a, ~a\n" instr-name
-;             (print-x86-imm s) 
-;             (print-x86-imm d))]
-;    [(Instr instr-name (list d))
-;     (format "\t~a\t~a\n" instr-name (print-x86-imm d))]
-;    [else (error "R1/print-x86-instr, unmatched" e)]
-;    ))
-;
-;(define (print-x86-block e)
-;  (match e
-;    [(Block info ss)
-;     (string-append* (for/list ([s ss]) (print-x86-instr s)))]
-;    [else
-;     (error "R1/print-x86-block unhandled " e)]))
-;
-;(define (print-x86 e)
-;  (match e
-;    [(Program info (CFG G))
-;     (define stack-space (dict-ref info 'stack-space))
-;     (string-append
-;      (string-append*
-;       (for/list ([(label block) (in-dict G)])
-;         (string-append (format "~a:\n" (label-name label))
-;                        (print-x86-block block))))
-;      "\n"
-;      (format "\t.globl ~a\n" (label-name "main"))
-;      (format "~a:\n" (label-name "main"))
-;      (format "\tpushq\t%rbp\n")
-;      (format "\tmovq\t%rsp, %rbp\n")
-;      (format "\tsubq\t$~a, %rsp\n" (align stack-space 16))
-;      (format "\tjmp ~a\n" (label-name 'start))
-;      (format "~a:\n" (label-name 'conclusion))
-;      (format "\taddq\t$~a, %rsp\n" (align stack-space 16))
-;      (format "\tpopq\t%rbp\n")
-;      (format "\tretq\n")
-;      )]
-;    [else (error "print-x86, unmatched" e)]
-;    ))
 
