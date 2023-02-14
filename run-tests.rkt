@@ -9,7 +9,7 @@
 (require "type-check-Lif.rkt")
 (require "compiler.rkt")
 (debug-level 1)
-;; (AST-output-syntax 'concrete-syntax)
+;;(AST-output-syntax 'concrete-syntax)
 
 ;; all the files in the tests/ directory with extension ".rkt".
 (define all-tests
@@ -25,11 +25,11 @@
         (lambda (p)
           (string=? r (car (string-split p "_"))))
         all-tests)))
+
 ;;(interp-tests "var" #f compiler-passes interp-Lvar "var_test" (tests-for "var"))
 
-;(interp-tests "if" #f '() interp-Lif "cond_test" (tests-for "cond"))
-
-(interp-tests "if" type-check-Lif '() interp-Lif "cond_test" (tests-for "cond"))
+;(interp-tests "if" type-check-Lif '() interp-Lif "cond_test" (tests-for "cond"))
+(interp-tests "if" type-check-Lif compiler-passes interp-Lif "cond_test" (tests-for "cond"))
 
 
 ;; Uncomment the following when all the passes are complete to

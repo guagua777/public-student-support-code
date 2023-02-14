@@ -5,6 +5,8 @@
 (require "interp-Lint.rkt")
 (require "interp-Lvar.rkt")
 (require "interp-Cvar.rkt")
+(require "interp-Lif.rkt")
+(require "interp-Cif.rkt")
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "type-check-Lif.rkt")
@@ -60,6 +62,192 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;(define (type-check-exp env)
+;  (lambda (e)
+;    (match e
+;      [(Var x) (dict-ref env x)]
+;      [(Int n) 'Integer]
+;      [(Bool b) 'Boolean]
+;      [(Prim op args) ((type-check-prim env) e)]
+;      [(Let x e body)
+;       (define Te ((type-check-exp env) e))
+;       (define Tb ((type-check-exp (dict-set env x Te)) body))
+;       Tb]
+;      [(If cnd cnsq alt)
+;       (unless (eqv? 'Boolean ((type-check-exp env) cnd))
+;         (error "condition given to if should be bool, given " cnd))
+;       (define Tc ((type-check-exp env) cnsq))
+;       (define Ta ((type-check-exp env) alt))
+;       (unless (equal? Tc Ta)
+;         (error (string-append "consequent and alternative in if should "
+;                               "have same type, given")
+;                (list Tc Ta)))
+;       Tc]
+;      [else
+;       (error "type-check-exp couldn't match" e)])))
+;
+;(define (type-check-prim env)
+;  (lambda (prim)
+;    (let ([recur (type-check-exp env)])
+;      (match prim
+;        [(Prim 'read (list)) 'Integer]
+;        [(Prim 'eq? (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (eqv? Te1 Te2)
+;             (and (eqv? Te1 Te1)
+;                  (or (eqv? Te1 'Integer)
+;                      (eqv? Te1 'Boolean)))
+;             'Boolean
+;             (error "eq? should take two ints or two bools, given " (list e1 e2)))]
+;        [(Prim '< (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Boolean
+;             (error "< should take two ints, given " (list e1 e2)))]
+;        [(Prim '<= (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Boolean
+;             (error "<= should take two ints, given " (list e1 e2)))]
+;        [(Prim '> (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Boolean
+;             (error "> should take two ints, given " (list e1 e2)))]
+;        [(Prim '>= (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Boolean
+;             (error ">= should take two ints, given " (list e1 e2)))]
+;        [(Prim '+ (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Integer
+;             (error "+ should take two ints, given " (list e1 e2)))]
+;        [(Prim '- (list e))
+;         (define Te (recur e))
+;         (if (eqv? Te 'Integer)
+;             'Integer
+;             (error "- should take one int, given " (list e)))]
+;        [(Prim '- (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Integer)
+;                  (eqv? Te2 'Integer))
+;             'Integer
+;             (error "- should take two ints, given " (list e1 e2)))]
+;        [(Prim 'and (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Boolean)
+;                  (eqv? Te2 'Boolean))
+;             'Boolean
+;             (error "and should take two bools, given " (list e1 e2)))]
+;        [(Prim 'or (list e1 e2))
+;         (define Te1 (recur e1))
+;         (define Te2 (recur e2))
+;         (if (and (eqv? Te1 'Boolean)
+;                  (eqv? Te2 'Boolean))
+;             'Boolean
+;             (error "or should take two bools, given " (list e1 e2)))]
+;        [(Prim 'not (list e))
+;         (define Te (recur e))
+;         (if (eqv? Te 'Boolean)
+;             'Boolean
+;             (error "not should take one bool, given " (list e)))]))))
+;             
+;(define (type-check p)
+;  (match p
+;    [(Program info body)
+;     (define Tb ((type-check-exp '()) body))
+;     (unless (equal? Tb 'Integer)
+;       (error "result of the program must be an integer, not " Tb))
+;     (Program info body)]))
+
+
+;(define (check-bool e) 
+;    (match e
+;        ['Boolean 'Boolean]
+;        [else (error "expected Boolean but got" e)]
+;        ))
+;
+;(define (check-int e) 
+;    (match e
+;        ['Integer 'Integer]
+;        [else (error "expected Integer but got" e)]
+;        ))
+;
+;(define (check-eq ts)
+;    (if (equal? (first ts) (last ts))
+;        (void)
+;        (error "Cannot compare items of different types" ts)))
+;
+;(define (type-check-op op ts)
+;    (match op
+;        ['read 'Integer]
+;        ['+ (for ([t ts]) (check-int t)) 'Integer]
+;        ['- (for ([t ts]) (check-int t)) 'Integer]
+;        ['not (for ([t ts]) (check-bool t)) 'Boolean]
+;        ['and (for ([t ts]) (check-bool t)) 'Boolean]
+;        ['or (for ([t ts]) (check-bool t)) 'Boolean]
+;        ['eq? (check-eq ts) 'Boolean]
+;        ['cmp (check-eq ts) 'Boolean]
+;        ['< (for ([t ts]) (check-int t)) 'Boolean]
+;        ['<= (for ([t ts]) (check-int t)) 'Boolean]
+;        ['> (for ([t ts]) (check-int t)) 'Boolean]
+;        ['>= (for ([t ts]) (check-int t)) 'Boolean]
+;        [else (error "unknown operator" op)]
+;))
+;
+;(define (type-check-exp env)
+;  (lambda (e)
+;    (match e
+;      [(Var x) (dict-ref env x)]
+;      [(Int n) 'Integer]
+;      [(Bool b) 'Boolean]
+;      [(Let x e body)
+;        (define Te ((type-check-exp env) e))
+;        (define Tb ((type-check-exp (dict-set env x Te)) body))
+;        Tb]
+;
+;      [(If e1 e2 e3)
+;       (define T1 ((type-check-exp env) e1))
+;       (unless (equal? T1 'Boolean) 
+;         (error "Conditional of if statement must resolve to a boolean. Was " T1))
+;       (define T2 ((type-check-exp env) e2))
+;       (define T3 ((type-check-exp env) e3))
+;       (unless (equal? T2 T3) 
+;         (error "Return types of both branches of If must match. Got" T2 " and " T3))
+;       T2]
+;      [(Prim op es)
+;        (define ts
+;           (for/list ([e es]) ((type-check-exp env) e)))
+;        (define t-ret (type-check-op op ts))
+;        t-ret]
+;      [else
+;       (error "type-check-exp couldn't match" e)])))
+;
+;(define (type-checker e)
+;    (match e
+;      [(Program info body)
+;       (define Tb ((type-check-exp '()) body))
+;       (unless (equal? Tb 'Integer)
+;         (error "result of the program must be an integer, not " Tb))
+;       (Program info body)]
+;      ))
+
+
 ;; 想一想环境中保存的是什么
 (define (uniquify-exp env)
   (lambda (e)
@@ -67,10 +255,13 @@
       [(Var x)
        (Var (dict-ref env x))]
       [(Int n) (Int n)]
+      [(Bool b) (Bool b)]
       [(Let x e body)
        (let* ([new-sym (gensym x)]
               [new-env (dict-set env x new-sym)])
          (Let new-sym ((uniquify-exp env) e) ((uniquify-exp new-env) body)))]
+      [(If cnd thn els)
+       (If ((uniquify-exp env) cnd) ((uniquify-exp env) thn) ((uniquify-exp env) els))]
       [(Prim op es)
        (Prim op (for/list ([e es]) ((uniquify-exp env) e)))])))
 
@@ -79,6 +270,50 @@
   (match p
     [(Program info e)
      (Program info ((uniquify-exp '()) e))]))
+
+;(Program
+; '()
+; (If
+;  (Let 'x4501192 (Int 100) (Prim '> (list (Var 'x4501192) (Int 10))))
+;  (If
+;   (Prim
+;    'and
+;    (list (Prim '> (list (Int 10) (Int 1))) (Prim '> (list (Int 10) (Int 2)))))
+;   (Int 10)
+;   (Int 20))
+;  (Int 30)))
+
+;(and e1 e2) ⇒ (if e1 e2 #f)
+;(or e1 e2) ⇒ (if e1 #t e2)
+
+(define shrink-exp
+  (lambda (e)
+    (match e
+      [(Prim 'and (list e1 e2))
+       (If (shrink-exp e1) (shrink-exp e2) (Bool #f))]
+      [(Prim 'or (list e1 e2))
+       (If (shrink-exp e1) (Bool #t) (shrink-exp e2))]
+      [(Prim op (list e1))
+       (Prim op (list (shrink-exp e1)))]
+      [(Prim op (list e1 e2))
+       (Prim op (list (shrink-exp e1) (shrink-exp e2)))]
+      [(Let x e1 body)
+       (Let x (shrink-exp e1) (shrink-exp body))]
+      [(If cnd thn els)
+       (If (shrink-exp cnd) (shrink-exp thn) (shrink-exp els))]
+      [else e])))
+      
+      
+(define shrink
+  (lambda (p)
+    (match p
+      [(Program info e)
+       (Program info (shrink-exp e))])))
+
+for/list
+与
+for/lists的区别
+
 
 (define (rco-atom e)
   (match e
@@ -739,7 +974,8 @@
 ;; Note that your compiler file (the file that defines the passes)
 ;; must be named "compiler.rkt"
 (define compiler-passes
-  `( ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lif)
+  `( ("shrink" ,shrink ,interp-Lif ,type-check-Lif)
+     ("uniquify" ,uniquify ,interp-Lif ,type-check-Lif)
      ;; Uncomment the following passes as you finish them.
      ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lif)
      ;;("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
