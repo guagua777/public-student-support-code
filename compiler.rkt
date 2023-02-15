@@ -310,10 +310,21 @@
       [(Program info e)
        (Program info (shrink-exp e))])))
 
-for/list
-与
-for/lists的区别
+;for/list
+;与
+;for/lists的区别
+;
+;(for/list 待遍历的集合 对元素的处理)
+;(for/lists 结果集values 待遍历的集合 对元素的处理)
 
+
+;; 思路是什么?
+;; (+ 5 (- 6))
+;; (let ([tmp4735188 (- 6)])
+;;    (+ 5 tmp4735188))
+;; 将复杂表达式 转换成 原子表达式（在这期间会生成临时变量，因此需要记录临时变量和对应的复杂表达式）
+;(- 10) ⇒  tmp.1
+;          ((tmp.1 . (- 10)))
 
 (define (rco-atom e)
   (match e
@@ -356,6 +367,8 @@ for/lists的区别
   (match p
     [(Program info e)
      (Program info (rco-exp e))]))
+
+
 
 ;; tail ::= (Return exp) | (Seq stmt tail)
 ;; The explicate_tail function takes an exp in LVar as input
@@ -977,7 +990,7 @@ for/lists的区别
   `( ("shrink" ,shrink ,interp-Lif ,type-check-Lif)
      ("uniquify" ,uniquify ,interp-Lif ,type-check-Lif)
      ;; Uncomment the following passes as you finish them.
-     ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lif)
+     ("remove complex opera*" ,remove-complex-opera* ,interp-Lif ,type-check-Lif)
      ;;("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;;("instruction selection" ,select-instructions ,interp-x86-0)
      ;;("assign homes" ,assign-homes ,interp-x86-0)
