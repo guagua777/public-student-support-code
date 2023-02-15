@@ -50,11 +50,12 @@
        ;;(make-new-let op new-args)])))
 
 (define rco-atm
-  (lambda (e)
-    (match e
+  (lambda (exp) ; exp -> atom
+    (match exp
       [(Int n) (values '() (Int n))]
       [(Var x) (values '() (Var x))]
       [(Let x v body)
+       ;; 
        (values '() (Let x (rco v) (rco body)))]
       [(Prim op args);; (op args)： (- 10) => tmp1
        (define-values (v-exps as)

@@ -326,47 +326,156 @@
 ;(- 10) ⇒  tmp.1
 ;          ((tmp.1 . (- 10)))
 
-(define (rco-atom e)
-  (match e
-    [(Var x) (values (Var x) '())]
-    [(Int n) (values (Int n) '())]
-    [(Let x rhs body)
-     ;; 想一想返回的应该是什么？
-     ;; 最后的表达式，以及最后表达式中变量和原子表达式的对应关系列表
-     ;; 变成atom之后的表达式，以及中间变量与对应的atom表达式的对应列表
-     (define new-rhs (rco-exp rhs))
-     (define-values (new-body body-ss) (rco-atom body))
-     (values new-body (append `((,x . ,new-rhs)) body-ss))]
-    [(Prim op es)
-     (define-values (new-es sss)
-       (for/lists (l1 l2) ([e es]) (rco-atom e)))
-     (define ss (append* sss))
-     (define tmp (gensym 'tmp))
-     (values (Var tmp)
-             (append ss `((,tmp . ,(Prim op new-es)))))]))
+;(define (rco-atom e)
+;  (match e
+;    [(Var x) (values (Var x) '())]
+;    [(Int n) (values (Int n) '())]
+;    [(Let x rhs body)
+;     ;; 想一想返回的应该是什么？
+;     ;; 最后的表达式，以及最后表达式中变量和原子表达式的对应关系列表
+;     ;; 变成atom之后的表达式，以及中间变量与对应的atom表达式的对应列表
+;     (define new-rhs (rco-exp rhs))
+;     (define-values (new-body body-ss) (rco-atom body))
+;     (values new-body (append `((,x . ,new-rhs)) body-ss))]
+;    [(Prim op es)
+;     (define-values (new-es sss)
+;       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+;     (define ss (append* sss))
+;     (define tmp (gensym 'tmp))
+;     (values (Var tmp)
+;             (append ss `((,tmp . ,(Prim op new-es)))))]))
 
 
 ;; rco-exp : exp -> exp
 ;; 最后会变成一个let
 ;; 返回最后的结果
+;(define (rco-exp e)
+;  (match e
+;    [(Var x) (Var x)]
+;    [(Int n) (Int n)]
+;    [(Let x rhs body)
+;     (Let x (rco-exp rhs) (rco-exp body))]
+;    [(Prim op es)
+;     ;; an atomic expression and
+;     ;; an alist mapping temporary variables to complex subexpressions.
+;     (define-values (new-es sss)
+;       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+;     (make-lets (append* sss) (Prim op new-es))]))
+
+;; remove-complex-opera* : R1 -> R1
+;(define (remove-complex-opera* p)
+;  (match p
+;    [(Program info e)
+;     (Program info (rco-exp e))]))
+
+;; resolve1
+;(define (rco-atom e)
+;  (match e
+;      [(Var x) (values (Var x) '())]
+;      [(Int n) (values (Int n) '())]
+;      [(Bool bool) (values (Bool bool) '())]
+;      [(Let x e body)
+;       (define tmp (gensym "tmp"))
+;       (define-values (e-val e-alist) (rco-atom e))
+;       (values (Var tmp) (append e-alist  `((,tmp . ,(Let x e-val (rco-exp body))))))]
+;      [(Prim op es)
+;       (define tmp (gensym "tmp"))
+;       (define-values (new-es bs)
+;         (for/lists (l1 l2) ([e es])
+;           (rco-atom e)))
+;       (values (Var tmp) (append bs `((,tmp . ,(Prim op new-es)))))]
+;      [(If cond exp else)
+;       (define tmp (gensym "tmp"))
+;       (define cond-val (rco-exp cond))
+;       (define exp-val (rco-exp exp))
+;       (define else-val (rco-exp else))
+;       (values (Var tmp) `((,tmp . ,(If cond-val exp-val else-val))))]
+;      ))
+;
+;(define (rco-exp e)
+;  (match e
+;      [(Var x) (Var x)]
+;      [(Int n) (Int n)]
+;      [(Bool bool) (Bool bool)]
+;      [(Let x e body)
+;       (begin (define e-val (rco-exp e))
+;              (Let x e-val (rco-exp body)))]
+;      [(Prim op es)
+;       (let [(exps (split-pairs (for/list ([e es]) 
+;                                     (begin (define-values (var alist) (rco-atom e)) 
+;                                            `(,var . ,alist)))))]
+;         (expand-alist (cdr exps) (Prim op (car exps))))]
+;      [(If cond exp else)
+;       (define exp-var (rco-exp exp))
+;       (define else-var (rco-exp else))
+;       (define cond-var (rco-exp cond))
+;       (If cond-var exp-var else-var)]
+;      ))
+;
+;(define (remove-complex-opera* p)
+;  (match p
+;    [(Program info e)
+;     (Program info (rco-exp e))]
+;    ))
+
+
+(define (remove-complex-opera* p)
+    (match p
+      [(Program info e)
+       (Program info (rco-exp e))]))
+
+(define (rco-atom e)
+  (match e
+    [(Var x) (values (Var x) '())]
+    [(Int n) (values (Int n) '())]
+    [(Bool b) (values (Bool b) '())]
+    [(Let x rhs body)
+     (define new-rhs (rco-exp rhs))
+     (define-values (new-body body-ss) (rco-atom body))
+     (values new-body (append `((,x . ,new-rhs)) body-ss))]
+    [(Prim op es) 
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+     (define ss (append* sss))
+     (define tmp (gensym 'tmp))
+     (values (Var tmp)
+             (append ss `((,tmp . ,(Prim op new-es)))))]
+    [(If e1 e2 e3)
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
+     (define ss (append* sss))
+     (define tmp (gensym 'tmp))
+     (match new-es
+	    [(list e1 e2 e3)
+	     (values (Var tmp)
+             (append ss `((,tmp . ,(If e1 e2 e3)))))])]
+    ))
+
+(define (make-lets^ bs e)
+  (match bs
+    [`() e]
+    [`((,x . ,e^) . ,bs^)
+     (Let x e^ (make-lets^ bs^ e))]))
+
 (define (rco-exp e)
   (match e
     [(Var x) (Var x)]
     [(Int n) (Int n)]
+    [(Bool b) (Bool b)]
     [(Let x rhs body)
      (Let x (rco-exp rhs) (rco-exp body))]
     [(Prim op es)
-     ;; an atomic expression and
-     ;; an alist mapping temporary variables to complex subexpressions.
      (define-values (new-es sss)
        (for/lists (l1 l2) ([e es]) (rco-atom e)))
-     (make-lets (append* sss) (Prim op new-es))]))
+     (make-lets^ (append* sss) (Prim op new-es))]
+    [(If e1 e2 e3)
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
+     (match new-es
+	    [(list e1 e2 e3)
+	     (make-lets^ (append* sss) (If e1 e2 e3))])]
+    ))
 
-;; remove-complex-opera* : R1 -> R1
-(define (remove-complex-opera* p)
-  (match p
-    [(Program info e)
-     (Program info (rco-exp e))]))
 
 
 
