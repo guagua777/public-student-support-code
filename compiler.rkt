@@ -479,31 +479,30 @@
 
 
 
-
 ;; tail ::= (Return exp) | (Seq stmt tail)
 ;; The explicate_tail function takes an exp in LVar as input
 ;; and produces a tail in CVar (see figure 2.13). 
-(define (explicate-tail exp)
-  (match exp
-    [(Var x) (values (Return (Var x)) '())]
-    [(Int n) (values (Return (Int n)) '())]
-    ;; 先想想应该返回的是什么
-    ;; 应该返回的是顺序的赋值表达式列表，是个Seq，对let中变量和值进行赋值
-    [(Let lhs rhs body)
-     ;; the right-hand side of a let executes before its body
-;     (let*-values
-;         ([(body-c0 body-vars) (explicate-tail body)]
-;          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
-;       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
-     ;; body-vars为body中的变量
-     ;; body-c0为tail，即为(Return exp) 或者是 (Seq stmt tail)
-     (define-values (body-c0 body-vars) (explicate-tail body))
-     ;; (printf "exp is ~a , body-c0 is ------ ~a \n" exp body-c0)
-     (define-values (new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0))
-     (values new-tail (cons lhs (append new-rhs-vars body-vars)))
-     ]
-    [(Prim op es)
-     (values (Return (Prim op es)) '())]))
+;(define (explicate-tail exp)
+;  (match exp
+;    [(Var x) (values (Return (Var x)) '())]
+;    [(Int n) (values (Return (Int n)) '())]
+;    ;; 先想想应该返回的是什么
+;    ;; 应该返回的是顺序的赋值表达式列表，是个Seq，对let中变量和值进行赋值
+;    [(Let lhs rhs body)
+;     ;; the right-hand side of a let executes before its body
+;;     (let*-values
+;;         ([(body-c0 body-vars) (explicate-tail body)]
+;;          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
+;;       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
+;     ;; body-vars为body中的变量
+;     ;; body-c0为tail，即为(Return exp) 或者是 (Seq stmt tail)
+;     (define-values (body-c0 body-vars) (explicate-tail body))
+;     ;; (printf "exp is ~a , body-c0 is ------ ~a \n" exp body-c0)
+;     (define-values (new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0))
+;     (values new-tail (cons lhs (append new-rhs-vars body-vars)))
+;     ]
+;    [(Prim op es)
+;     (values (Return (Prim op es)) '())]))
 
 ;; The explicate_assign function takes an exp in LVar,
 ;; the variable to which it is to be assigned,
@@ -513,57 +512,301 @@
 ;; 把r1exp赋值给变量v
 ;;想想返回值是什么？
 ;; 对变量进行赋值后，形成的Seq
-(define (explicate-assign r1exp v c)
-  (match r1exp
-    [(Int n)
-     ;; 在c的前面加上，这样就反过来了，最里面的会跑到最外面来
-     (values (Seq (Assign v (Int n)) c) '())]
-    [(Prim 'read '())
-     (values (Seq (Assign v (Prim 'read '())) c) '())]
-    [(Prim '- (list e))
-     (values (Seq (Assign v (Prim '- (list e))) c)
-             '())] 
-    [(Prim '+ (list e1 e2))
-     (values (Seq (Assign v (Prim '+ (list e1 e2))) c)
-             '())] 
-    [(Var x)
-     (values (Seq (Assign v (Var x)) c) '())]
-    [(Let x e body) 
-     (define-values (tail let-binds) (explicate-assign body v c))
-     (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
-     ;; 想一想为什么不是(append let-binds^ let-binds)
-     ;(values tail^ (cons x (append let-binds^ let-binds)))]
-     (values tail^ (cons x (append let-binds let-binds^)))]
-    [else
-     (error "error explicate-assign ")]))
+;(define (explicate-assign r1exp v c)
+;  (match r1exp
+;    [(Int n)
+;     ;; 在c的前面加上，这样就反过来了，最里面的会跑到最外面来
+;     (values (Seq (Assign v (Int n)) c) '())]
+;    [(Prim 'read '())
+;     (values (Seq (Assign v (Prim 'read '())) c) '())]
+;    [(Prim '- (list e))
+;     (values (Seq (Assign v (Prim '- (list e))) c)
+;             '())] 
+;    [(Prim '+ (list e1 e2))
+;     (values (Seq (Assign v (Prim '+ (list e1 e2))) c)
+;             '())] 
+;    [(Var x)
+;     (values (Seq (Assign v (Var x)) c) '())]
+;    [(Let x e body) 
+;     (define-values (tail let-binds) (explicate-assign body v c))
+;     (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
+;     ;; 想一想为什么不是(append let-binds^ let-binds)
+;     ;(values tail^ (cons x (append let-binds^ let-binds)))]
+;     (values tail^ (cons x (append let-binds let-binds^)))]
+;    [else
+;     (error "error explicate-assign ")]))
 ;     (printf "else v r1exp is ******* ~a ~a \n" v r1exp)
 ;     (values (Seq (Assign v r1exp) c) '())]))
 
 ;; explicate-control : R1 -> C0
-(define (explicate-control p)
-  (match p
-    [(Program info body)
-     (begin
-       (define-values (tail let-binds) (explicate-tail body))
-       ;;(printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
-       ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
-       (CProgram (cons (cons 'locals let-binds) info)
-                 (list (cons 'start tail))))]))
+;(define (explicate-control p)
+;  (match p
+;    [(Program info body)
+;     (begin
+;       (define-values (tail let-binds) (explicate-tail body))
+;       ;;(printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
+;       ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
+;       (CProgram (cons (cons 'locals let-binds) info)
+;                 (list (cons 'start tail))))]))
   ;(error "TODO: code goes here (explicate-control)"))
 
 
 
 ;; explicate-control 思路
 
+(define basic-blocks '())
+
+(define (create-block tail)
+  (match tail
+    [(Goto label) (Goto label)]
+    [else
+     (let ([label (gensym 'block)])
+       (set! basic-blocks (cons (cons label tail) basic-blocks))
+       (Goto label))]))
+
+;;------------------------------------
+;(define (do-assignment exp var tail)
+;  (match exp
+;    [(Return (Int n)) (Seq (Assign var (Int n)) tail)]
+;    [(Return (Var x)) (Seq (Assign var (Var x)) tail)]
+;    [(Return (Bool bool)) (Seq (Assign var (Bool bool)) tail)]
+;    [(Return (Prim op es)) (Seq (Assign var (Prim op es)) tail)]
+;    [(Seq stmt seq-tail) (Seq stmt (do-assignment seq-tail var tail))]))
+;
+;(define (explicate-assign exp var tail cgraph)
+;  (match exp
+;    [(If pred then else)
+;     (define tail-block (gensym "block"))
+;     (define-values (then-block then-vars then-graph) (explicate-assign then var (Goto tail-block) cgraph))
+;     (define-values (else-block else-vars else-graph) (explicate-assign else var (Goto tail-block) then-graph))
+;     (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-block else-block else-graph))
+;     (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars)) 
+;               (cons `(,tail-block . ,tail) pred-cgraph))]
+;    [(Let x exp body)
+;      (begin (define-values (exp-body body-vars body-graph) (explicate-assign body var tail cgraph))
+;             (define-values (body-tail vars newgraph) (explicate-assign exp (Var x) exp-body body-graph))
+;             (values body-tail (cons (Var x) (remove-duplicates (append body-vars vars))) newgraph))]
+;    [x (begin (define-values (exp-tail exp-vars exp-graph) (explicate-tail exp cgraph))
+;              (values (do-assignment exp-tail var tail) exp-vars exp-graph))
+;  ]))
+;
+;(define (explicate-pred e true-block false-block cgraph)
+;  (match e
+;    [(Bool b) (values (if b true-block false-block) '() cgraph))]
+;
+;    ;;[(Bool bool) 
+;    ;; (values (IfStmt (Prim 'eq? (list (Bool bool) (Bool #t))) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
+;     
+;    [(Var x) 
+;     (let ([true-lbl (gensym "block")]
+;           [false-blb (gensym "block")])
+;      (values (IfStmt (Prim 'eq? (list (Var x) (Bool #t))) (Goto true-lbl) (Goto false-lbl)) '() 
+;          ... cgraph ...)]
+;    [(Prim 'not (list var)) (values (IfStmt (Prim 'eq? (list var (Bool #f))) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
+;    [(Prim cmp es) (values (IfStmt (Prim cmp es) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
+;    [(Let x exp body)
+;      (begin (define-values (exp-body body-vars body-graph) (explicate-pred body true-lbl false-lbl cgraph))
+;             (define-values (tail vars tail-graph) (explicate-assign exp (Var x) exp-body body-graph)) 
+;             (values tail (cons (Var x) (remove-duplicates (append body-vars vars))) tail-graph))]
+;    [(If pred then else) 
+;     (let ([true-lbl (gensym "block")]
+;           [false-lbl (gensym "block")])
+;        (begin (define-values (then-exp then-vars then-cgraph) (explicate-pred then (Goto true-lbl) (Goto false-lbl) cgraph))
+;               (define-values (else-exp else-vars else-cgraph) (explicate-pred else (Goto true-lbl) (Goto false-lbl) then-cgraph))
+;               (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-exp else-exp else-cgraph))
+;               (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars))
+;                  ... pred-cgraph))))]
+;    ))
+;                                  
+;(define (explicate-tail e cgraph)
+;  (match e
+;      [(Var x) (values (Return (Var x)) '() cgraph)]
+;      [(Int n) (values (Return (Int n)) '() cgraph)]
+;      [(Bool bool) (values (Return (Bool bool)) '() cgraph)]
+;      [(Let x e body)
+;       (begin (define-values (exp-body body-vars body-graph) (explicate-tail body cgraph))
+;         (define-values (tail vars newgraph) (explicate-assign e (Var x) exp-body body-graph))
+;         (values tail (cons (Var x) (remove-duplicates (append body-vars vars))) newgraph))]
+;      [(Prim op es)
+;       (values (Return (Prim op es)) '() cgraph)]
+;      [(If pred then else)
+;        (let ([then-block (gensym "block")] [else-block (gensym "block")])
+;          (begin (define-values (then-exp then-vars then-cgraph) (explicate-tail then cgraph))
+;                 (define-values (else-exp else-vars else-cgraph) (explicate-tail else then-cgraph))
+;                 (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-block else-block else-cgraph))
+;                 (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars))
+;                      (cons `(,then-block . ,then-exp) (cons `(,else-block . ,else-exp) pred-cgraph)))))]
+;      ))
+;
+;(define (explicate-control p)
+;  (match p
+;    [(Program info e)
+;     (begin (define-values (tail vars graph) (explicate-tail e '())) 
+;            (CProgram `((locals . ,vars)) (cons `(start . ,tail) graph)))]
+;    ))
+
+;;----------------------
+(define Explicate-CFG '())
+
+(define (add-to-cfg t)
+  (define new-label (gensym "l"))
+  (set! Explicate-CFG (cons (cons new-label t) Explicate-CFG))
+  new-label)
+
+(define (explicate-tail exp)
+  (match  exp
+    [(Int n) (values (Return (Int n)) '())]
+    [(Var v) (values (Return (Var v)) '())]
+    [(Bool bool) (values (Return (Bool bool)) '())]
+    [(Prim rator rand) (values (Return (Prim rator rand)) '())]
+    [(Let var exp body)
+     (let*-values ([(let-body variables1) (explicate-tail body)]
+                   [(assigned-tail variables2) (explicate-assign exp var let-body)])
+       (values assigned-tail (cons var (append variables1 variables2))))]
+    [(If cnd thn els)
+     (let*-values ([(thn-tail vars1) (explicate-tail thn)]
+                   [(els-tail vars2) (explicate-tail els)])
+     (let-values ([(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
+       ;; (values cnd-tail (append vars3 vars1 vars2))))]))
+       (values cnd-tail (append vars1 vars2 vars3))))]))
+
+(define (explicate-assign exp var tail)
+  (match exp
+    [(Int n) (values (Seq (Assign (Var var) (Int n)) tail) '())]
+    [(Var v) (values (Seq (Assign (Var var) (Var v)) tail) '())]
+    [(Bool bool) (values (Seq (Assign (Var var) (Bool bool)) tail) '())]
+    [(Prim rator rand) (values (Seq (Assign (Var var) (Prim rator rand)) tail) '())]
+    [(Let var* exp body)
+     (let*-values ([(body-tail vars1) (explicate-assign body var tail)]
+                   [(exp-tail vars2) (explicate-assign exp var* body-tail)])
+       (values exp-tail (cons var* (append vars1 vars2))))]
+    [(If cnd thn els)
+     (define label (add-to-cfg tail))
+     (let*-values ([(thn-tail vars1) (explicate-assign thn var (Goto label))]
+                   [(els-tail vars2) (explicate-assign els var (Goto label))]
+                   [(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
+       ;; 注意变量顺序
+       (values cnd-tail (append vars3 vars1 vars2)))]))
+
+;(define (explicate-pred e tail1 tail2)
+;  (match e
+;    [(Bool bool) (if bool (values tail1 '()) (values tail2 '()))]
+;    [(Var v)
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t))) 
+;                     (Goto label1) (Goto label2)) 
+;             '())]
+;    [(Prim rator (list exp1 exp2))
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (define atm1 (gensym "rator-1-"))
+;     (define atm2 (gensym "rator-2-"))
+;     (let*-values ([(atm2-tail vars2) (explicate-assign exp2 atm2 (IfStmt (Prim rator (list (Var atm1) (Var atm2))) (Goto label1) (Goto label2)))]
+;                    [(atm1-tail vars1) (explicate-assign exp1 atm1 atm2-tail)])
+;        (values atm1-tail (cons atm1 (cons atm2 (append vars1 vars2)))))]
+;    [(Prim 'not (list exp))
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (values (IfStmt (Prim 'eq? (list exp (Bool #t))) (Goto label2) (Goto label1)) '())]
+;    [(Let var exp body)
+;      (define label1 (add-to-cfg tail1))
+;      (define label2 (add-to-cfg tail2))
+;      (define t (gensym "let-ec-"))
+;      (let*-values ([(body-tail vars1) (explicate-assign body t (IfStmt (Prim 'eq? (list (Var t) (Bool #t))) (Goto label1) (Goto label2)))]
+;                    [(exp-tail vars2) (explicate-assign exp var body-tail)])
+;        (values exp-tail (cons t (cons var (append vars1 vars2)))))]
+;    [(If cnd thn els)
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (let*-values ([(thn-block vars2) (explicate-pred thn (Goto label1) (Goto label2))]
+;                   [(els-block vars3) (explicate-pred els (Goto label1) (Goto label2))]
+;                   [(thn-label) (add-to-cfg thn-block)]
+;                   [(els-label) (add-to-cfg els-block)]
+;                   [(result vars) (explicate-pred cnd (Goto thn-label) (Goto els-label))]
+;                   )
+;       (values result (append vars vars2 vars3)))]
+;    ))
 
 
+(define (explicate-pred e tail1 tail2)
+  (match e
+    [(Bool bool) ...
+    
+
+(define (explicate-control p)
+  (set! Explicate-CFG '())
+  (match p
+    [(Program info e)
+     (let-values ([(tail vars) (explicate-tail e)])
+       (CProgram
+        (list (cons 'locals vars))
+        (cons (cons 'start tail) Explicate-CFG)))]
+    ))
 
 
+;(CProgram
+; '((locals tmp397488 tmp397489 tmp397490 tmp397491 tmp397492))
+; (list
+;  (cons
+;   'start
+;   (Seq
+;    (Assign (Var 'tmp397488) (Prim 'read '()))
+;    (Seq
+;     (Assign (Var 'tmp397489) (Prim 'eq? (list (Var 'tmp397488) (Int 0))))
+;     (Seq
+;      (Assign (Var 'tmp397490) (Prim 'read '()))
+;      (Seq
+;       (Assign (Var 'tmp397491) (Prim 'eq? (list (Var 'tmp397490) (Int 1))))
+;       (IfStmt
+;        (Prim 'eq? (list (Var 'tmp397489) (Bool #t)))
+;        (Goto 'l397823)
+;        (Goto 'l397824)))))))
+;  (cons 'l397824 (Seq (Assign (Var 'tmp397492) (Bool #f)) (Goto 'l397822)))
+;  (cons
+;   'l397823
+;   (Seq (Assign (Var 'tmp397492) (Var 'tmp397491)) (Goto 'l397822)))
+;  (cons
+;   'l397822
+;   (IfStmt
+;    (Prim 'eq? (list (Var 'tmp397492) (Bool #t)))
+;    (Goto 'l397820)
+;    (Goto 'l397821)))
+;  (cons 'l397821 (Return (Int 42)))
+;  (cons 'l397820 (Return (Int 0)))))
+;
+;
+;program:
+;locals:
+;'(tmp402042 tmp402043 tmp402044 tmp402045 tmp402046)
+;start:
+;    tmp402042 = (read);
+;    tmp402043 = (eq? tmp402042 0);
+;    tmp402044 = (read);
+;    tmp402045 = (eq? tmp402044 1);
+;    if (eq? tmp402043 #t)
+;       goto l402132;
+;    else
+;       goto l402133;
+;l402133:
+;    tmp402046 = #f;
+;    goto l402131;
+;l402132:
+;    tmp402046 = tmp402045;
+;    goto l402131;
+;l402131:
+;    if (eq? tmp402046 #t)
+;       goto l402129;
+;    else
+;       goto l402130;
+;l402130:
+;    return 42;
+;l402129:
+;    return 0;
 
 
-
-
-
+;In this way, jump instructions are edges in the graph and the basic blocks are the nodes.
+;Likewise, our language CIf provides the ability to label a sequence of statements and to jump to a label via goto.
 
 
 (define (select-instr-atm a)
