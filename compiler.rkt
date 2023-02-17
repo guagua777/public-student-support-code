@@ -10,6 +10,7 @@
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "type-check-Lif.rkt")
+(require "type-check-Cif.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
@@ -1114,7 +1115,7 @@
      ("uniquify" ,uniquify ,interp-Lif ,type-check-Lif)
      ;; Uncomment the following passes as you finish them.
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lif ,type-check-Lif)
-     ;;("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
      ;;("instruction selection" ,select-instructions ,interp-x86-0)
      ;;("assign homes" ,assign-homes ,interp-x86-0)
      ;;("patch instructions" ,patch-instructions ,interp-x86-0)
