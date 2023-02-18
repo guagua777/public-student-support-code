@@ -1,3 +1,5 @@
-(if (and (eq? (read) 0) (eq? (read) 1))
-  0
-  42)
+(let ([x (read)])
+  (let ([y (read)])
+    (if (if (< x 10) (eq? x 0) (eq? x 20))
+      (+ y 2)
+      (+ y 10))))

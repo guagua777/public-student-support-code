@@ -688,50 +688,67 @@
        ;; 注意变量顺序
        (values cnd-tail (append vars3 vars1 vars2)))]))
 
-;(define (explicate-pred e tail1 tail2)
-;  (match e
-;    [(Bool bool) (if bool (values tail1 '()) (values tail2 '()))]
-;    [(Var v)
-;     (define label1 (add-to-cfg tail1))
-;     (define label2 (add-to-cfg tail2))
-;     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t))) 
-;                     (Goto label1) (Goto label2)) 
-;             '())]
-;    [(Prim rator (list exp1 exp2))
-;     (define label1 (add-to-cfg tail1))
-;     (define label2 (add-to-cfg tail2))
-;     (define atm1 (gensym "rator-1-"))
-;     (define atm2 (gensym "rator-2-"))
-;     (let*-values ([(atm2-tail vars2) (explicate-assign exp2 atm2 (IfStmt (Prim rator (list (Var atm1) (Var atm2))) (Goto label1) (Goto label2)))]
-;                    [(atm1-tail vars1) (explicate-assign exp1 atm1 atm2-tail)])
-;        (values atm1-tail (cons atm1 (cons atm2 (append vars1 vars2)))))]
-;    [(Prim 'not (list exp))
-;     (define label1 (add-to-cfg tail1))
-;     (define label2 (add-to-cfg tail2))
-;     (values (IfStmt (Prim 'eq? (list exp (Bool #t))) (Goto label2) (Goto label1)) '())]
-;    [(Let var exp body)
-;      (define label1 (add-to-cfg tail1))
-;      (define label2 (add-to-cfg tail2))
-;      (define t (gensym "let-ec-"))
-;      (let*-values ([(body-tail vars1) (explicate-assign body t (IfStmt (Prim 'eq? (list (Var t) (Bool #t))) (Goto label1) (Goto label2)))]
-;                    [(exp-tail vars2) (explicate-assign exp var body-tail)])
-;        (values exp-tail (cons t (cons var (append vars1 vars2)))))]
-;    [(If cnd thn els)
-;     (define label1 (add-to-cfg tail1))
-;     (define label2 (add-to-cfg tail2))
-;     (let*-values ([(thn-block vars2) (explicate-pred thn (Goto label1) (Goto label2))]
-;                   [(els-block vars3) (explicate-pred els (Goto label1) (Goto label2))]
-;                   [(thn-label) (add-to-cfg thn-block)]
-;                   [(els-label) (add-to-cfg els-block)]
-;                   [(result vars) (explicate-pred cnd (Goto thn-label) (Goto els-label))]
-;                   )
-;       (values result (append vars vars2 vars3)))]
-;    ))
-
-
 (define (explicate-pred e tail1 tail2)
   (match e
-    [(Bool bool) ...
+    [(Bool bool) (if bool (values tail1 '()) (values tail2 '()))]
+    [(Var v)
+     (define label1 (add-to-cfg tail1))
+     (define label2 (add-to-cfg tail2))
+     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t))) 
+                     (Goto label1) (Goto label2)) 
+             '())]
+    [(Prim rator (list exp1 exp2))
+     (define label1 (add-to-cfg tail1))
+     (define label2 (add-to-cfg tail2))
+     (define atm1 (gensym "rator-1-"))
+     (define atm2 (gensym "rator-2-"))
+     (let*-values ([(atm2-tail vars2) (explicate-assign exp2 atm2 (IfStmt (Prim rator (list (Var atm1) (Var atm2))) (Goto label1) (Goto label2)))]
+                    [(atm1-tail vars1) (explicate-assign exp1 atm1 atm2-tail)])
+        (values atm1-tail (cons atm1 (cons atm2 (append vars1 vars2)))))]
+    [(Prim 'not (list exp))
+     (define label1 (add-to-cfg tail1))
+     (define label2 (add-to-cfg tail2))
+     (values (IfStmt (Prim 'eq? (list exp (Bool #t))) (Goto label2) (Goto label1)) '())]
+    [(Let var exp body)
+      (define label1 (add-to-cfg tail1))
+      (define label2 (add-to-cfg tail2))
+      (define t (gensym "let-ec-"))
+      (let*-values ([(body-tail vars1) (explicate-assign body t (IfStmt (Prim 'eq? (list (Var t) (Bool #t))) (Goto label1) (Goto label2)))]
+                    [(exp-tail vars2) (explicate-assign exp var body-tail)])
+        (values exp-tail (cons t (cons var (append vars1 vars2)))))]
+    [(If cnd thn els)
+     (define label1 (add-to-cfg tail1))
+     (define label2 (add-to-cfg tail2))
+     (let*-values ([(thn-block vars2) (explicate-pred thn (Goto label1) (Goto label2))]
+                   [(els-block vars3) (explicate-pred els (Goto label1) (Goto label2))]
+                   [(thn-label) (add-to-cfg thn-block)]
+                   [(els-label) (add-to-cfg els-block)]
+                   [(result vars) (explicate-pred cnd (Goto thn-label) (Goto els-label))]
+                   )
+       (values result (append vars vars2 vars3)))]
+    ))
+
+
+;(define (explicate-pred e tail1 tail2)
+;  (match e
+;    [(Bool b)
+;     (if b
+;         (values tail1 '())
+;         (values tail2 '()))]
+;    [(Var v)
+;     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t)))
+;                     (create-block tail1)
+;                     (create-block tail2))
+;             '())]
+;    [(Prim op (list e1 e2))
+;     (values (IfStmt (Prim op (list e1 e2))
+;                     (create-block tail1)
+;                     (create-block tail2))
+;             '())]
+;    [(Let x v body)
+;     ...
+     
+     
     
 
 (define (explicate-control p)
@@ -807,6 +824,282 @@
 
 ;In this way, jump instructions are edges in the graph and the basic blocks are the nodes.
 ;Likewise, our language CIf provides the ability to label a sequence of statements and to jump to a label via goto.
+
+;These ordering constraints are the
+;reverse of a topological order on a graph representation of the program. In particular,
+;the control flow graph (CFG) (Allen 1970) of a program has a node for each basic
+;block and an edge for each jump from one block to another. It is straightforward to
+;generate a CFG from the dictionary of basic blocks.
+
+
+
+(define (is-trivial? block)
+  (match block
+    [(Goto label) #t]
+    [else #f]))
+
+(define (get-label block)
+  (match block
+    [(Goto label) label]))
+
+(define (add-to-hash hash src-label goto-label)
+  (hash-set! hash src-label goto-label)
+  (hash-map hash 
+    (lambda (k v) (if (equal? v src-label)
+      (hash-set! hash k goto-label)
+      (void))))
+  hash)
+
+(define (short-cut blocks)
+  (define ret (make-hash))
+  (for ([(label block) (in-dict blocks)])
+          (if (is-trivial? block)
+            (add-to-hash ret label (get-label block))
+            (hash-set! ret label label)))
+  ret)
+
+(define (patch-tail hash tl)
+  (match tl
+    [(IfStmt cnd thn els) (IfStmt cnd (patch-tail hash thn) (patch-tail hash els))]
+    [(Return exp) tl]
+    [(Seq stmt tail) (Seq stmt (patch-tail hash tail))]
+    [(Goto label) (Goto (hash-ref hash label))]
+    ))
+;; 消除只有一个goto的label
+;; remove the label who has only the goto
+(define (patch-gotos short-cuts blocks)   
+  (for/list ([(label block) (in-dict blocks)])
+        (cons label (patch-tail short-cuts block))))
+
+(define (optimize-jumps p)
+  (match p
+    [(CProgram info blocks)
+      (define short-cuts (short-cut blocks))
+      (printf "short cuts is ~a \n" short-cuts)
+      (define not-short-cut (filter (lambda (b) (or (not (is-trivial? (cdr b)))
+                                                    (equal? (car b) 'start))) blocks))
+      (printf "not short cut is ~a \n" not-short-cut)
+      (define patched (patch-gotos short-cuts not-short-cut))
+      (printf "patched is ~a \n" patched)
+      (define ref-graph (block-list->racketgraph patched))
+      (printf "edges is ~a \n" (get-edges ref-graph))
+      ;; what is the effect of this step?
+      (define has-neighbors (filter (lambda (b) (or (has-vertex? ref-graph (car b))
+                                                    (equal? (car b) 'start))) patched))
+      (printf "has-neighbors is ~a \n" has-neighbors)
+      (CProgram info (patch-gotos short-cuts has-neighbors))]))
+
+;; 最后一步的goto的label，指向当前的label
+;; 根据图4.8，tail总共有四种形式
+;; (Return exp)
+;; (Seq stmt tail)
+;; (Goto label)
+;; (IfStmt (Prim cmp (atm atm)) (Goto label) (Goto label))
+(define (build-graph-optimize label tail racket-cfg)
+  (match tail
+    [(Goto target)
+     (printf "source is ~a, target is ~a \n " target label)
+     (add-directed-edge! racket-cfg target label)]
+    [(IfStmt cnd thn els) (begin
+                            (build-graph-optimize label thn racket-cfg)
+                            (build-graph-optimize label els racket-cfg))]
+    [(Seq stmt tl) (build-graph-optimize label tl racket-cfg)]
+    [_ (void)]))
+
+(define (block-list->racketgraph blocks)
+  (define racket-cfg (directed-graph '()))
+     (for ([(label block) (in-dict blocks)])
+       (build-graph-optimize label block racket-cfg))
+     racket-cfg)
+
+;(optimize-jumps
+;(CProgram
+; '((locals
+;    x599559
+;    y599560
+;    tmp599599
+;    tmp599600
+;    tmp599601
+;    tmp599602
+;    tmp599603
+;    tmp599604))
+; (list
+;  (cons
+;   'start
+;   (Seq
+;    (Assign (Var 'x599559) (Prim 'read '()))
+;    (Seq
+;     (Assign (Var 'y599560) (Prim 'read '()))
+;     (Seq
+;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
+;      (Seq
+;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
+;       (Seq
+;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
+;        (IfStmt
+;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
+;         (Goto 'l599654)
+;         (Goto 'l599655))))))))
+;  (cons
+;   'l599655
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l599653)))
+;  (cons
+;   'l599654
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l599653)))
+;  (cons
+;   'l599653
+;   (Seq
+;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
+;    (Seq
+;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
+;     (IfStmt
+;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
+;      (Goto 'l599651)
+;      (Goto 'l599652)))))
+;  (cons 'l599652 (Return (Var 'tmp599604)))
+;  (cons 'l599651 (Return (Var 'tmp599603))))))
+;
+;(optimize-jumps
+; (CProgram
+; '((locals
+;    x599559
+;    y599560
+;    tmp599599
+;    tmp599600
+;    tmp599601
+;    tmp599602
+;    tmp599603
+;    tmp599604))
+; (list
+;  (cons
+;   'start
+;   (Seq
+;    (Assign (Var 'x599559) (Prim 'read '()))
+;    (Seq
+;     (Assign (Var 'y599560) (Prim 'read '()))
+;     (Seq
+;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
+;      (Seq
+;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
+;       (Seq
+;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
+;        (IfStmt
+;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
+;         (Goto 'l599654)
+;         (Goto 'l599655))))))))
+;  (cons
+;   'l599655
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l511111)))
+;  (cons
+;   'l599654
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l511111)))
+;  (cons
+;   'l599653
+;   (Seq
+;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
+;    (Seq
+;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
+;     (IfStmt
+;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
+;      (Goto 'l599651)
+;      (Goto 'l599652)))))
+;  (cons
+;   'l511111 
+;   (Goto 'l599653))    
+;  (cons 'l599652 (Return (Var 'tmp599604)))
+;  (cons 'l599651 (Return (Var 'tmp599603))))))
+;
+;(optimize-jumps
+; (CProgram
+; '((locals
+;    x599559
+;    y599560
+;    tmp599599
+;    tmp599600
+;    tmp599601
+;    tmp599602
+;    tmp599603
+;    tmp599604))
+; (list
+;  (cons
+;   'start
+;   (Seq
+;    (Assign (Var 'x599559) (Prim 'read '()))
+;    (Seq
+;     (Assign (Var 'y599560) (Prim 'read '()))
+;     (Seq
+;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
+;      (Seq
+;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
+;       (Seq
+;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
+;        (IfStmt
+;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
+;         (Goto 'l599654)
+;         (Goto 'l599655))))))))
+;  (cons
+;   'l599655
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l511111)))
+;  (cons
+;   'l599654
+;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l511111)))
+;  (cons
+;   'l599653
+;   (Seq
+;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
+;    (Seq
+;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
+;     (IfStmt
+;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
+;      (Goto 'l599651)
+;      (Goto 'l599652)))))
+;  (cons
+;   'l511111 
+;   (Goto 'l522222))  
+;  (cons
+;   'l522222 
+;   (Goto 'l599653))    
+;  (cons 'l599652 (Return (Var 'tmp599604)))
+;  (cons 'l599651 (Return (Var 'tmp599603))))))
+
+;short cuts is #hash((l511111 . l599653)
+;                    (l599651 . l599651)
+;                    (l599652 . l599652)
+;                    (l599653 . l599653)
+;                    (l599654 . l599654)
+;                    (l599655 . l599655)
+;                    (start . start)) 
+;not short cut is
+;(
+;(start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
+;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l511111>>) 
+;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l511111>>) 
+;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
+;(l599652 . #<Return: #<Var: tmp599604>>) 
+;(l599651 . #<Return: #<Var: tmp599603>>))
+;patchs is 
+;((start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
+;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l599653>>) 
+;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l599653>>) 
+;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
+;(l599652 . #<Return: #<Var: tmp599604>>) 
+;(l599651 . #<Return: #<Var: tmp599603>>))
+;l599655和l599654中的goto替换为了l599653
+; edges is ((l599654 start)
+;           (l599651 l599653)
+;           (l599652 l599653)
+;           (l599655 start)
+;           (l599653 l599655)
+;           (l599653 l599654))
+;has-neighbors is 
+;((start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
+;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l599653>>) 
+;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l599653>>) 
+;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
+;(l599652 . #<Return: #<Var: tmp599604>>) 
+;(l599651 . #<Return: #<Var: tmp599603>>))
+
+
 
 
 (define (select-instr-atm a)
@@ -1359,6 +1652,7 @@
      ;; Uncomment the following passes as you finish them.
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lif ,type-check-Lif)
      ("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
+     ("optimize jumps" ,optimize-jumps ,interp-Cif ,type-check-Cif)
      ;;("instruction selection" ,select-instructions ,interp-x86-0)
      ;;("assign homes" ,assign-homes ,interp-x86-0)
      ;;("patch instructions" ,patch-instructions ,interp-x86-0)
