@@ -1102,52 +1102,221 @@
 
 
 
-(define (select-instr-atm a)
-  (match a
-    [(Int i) (Imm i)]
-    [(Var _) a]))
+;(define (select-instr-atm a)
+;  (match a
+;    [(Int i) (Imm i)]
+;    [(Var _) a]))
+;
+;(define (select-instr-assign v e)
+;  (match e
+;    [(Int i) 
+;     (list (Instr 'movq (list (select-instr-atm e) v)))]
+;    [(Var _)
+;     (list (Instr 'movq (list (select-instr-atm e) v)))]
+;    [(Prim 'read '())
+;     (list (Callq 'read_int)
+;           (Instr 'movq (list (Reg 'rax) v)))]
+;    [(Prim '- (list a))
+;     (list (Instr 'movq (list (select-instr-atm a) v))
+;           (Instr 'negq (list v)))]
+;    [(Prim '+ (list a1 a2))
+;     (list (Instr 'movq (list (select-instr-atm a1) v))
+;           (Instr 'addq (list (select-instr-atm a2) v)))]))
+;
+;(define (select-instr-stmt stmt)
+;  (match stmt
+;    ;; one of the args is the same as the left hand side Var
+;    [(Assign (Var v) (Prim '+ (list (Var v1) a2))) #:when (equal? v v1)
+;     (list (Instr 'addq (list (select-instr-atm a2) (Var v))))]
+;    [(Assign (Var v) (Prim '+ (list a1 (Var v2)))) #:when (equal? v v2)
+;     (list (Instr 'addq (list (select-instr-atm a1) (Var v))))]
+;    [(Assign v e)
+;     (select-instr-assign v e)]))
+;
+;(define (select-instr-tail t)
+;  (match t
+;    [(Seq stmt t*) 
+;     (append (select-instr-stmt stmt) (select-instr-tail t*))]
+;    [(Return (Prim 'read '())) 
+;     (list (Callq 'read_int) (Jmp 'conclusion))]
+;    [(Return e) (append
+;                 (select-instr-assign (Reg 'rax) e)
+;                 (list (Jmp 'conclusion)))]))
+;
+;(define (select-instructions p)
+;  (match p
+;    [(CProgram info (list (cons 'start t)))
+;     (X86Program info
+;       (list (cons 'start (Block '() (select-instr-tail t)))))]))
 
-(define (select-instr-assign v e)
-  (match e
-    [(Int i) 
-     (list (Instr 'movq (list (select-instr-atm e) v)))]
-    [(Var _)
-     (list (Instr 'movq (list (select-instr-atm e) v)))]
-    [(Prim 'read '())
-     (list (Callq 'read_int)
-           (Instr 'movq (list (Reg 'rax) v)))]
-    [(Prim '- (list a))
-     (list (Instr 'movq (list (select-instr-atm a) v))
-           (Instr 'negq (list v)))]
-    [(Prim '+ (list a1 a2))
-     (list (Instr 'movq (list (select-instr-atm a1) v))
-           (Instr 'addq (list (select-instr-atm a2) v)))]))
 
-(define (select-instr-stmt stmt)
-  (match stmt
-    ;; one of the args is the same as the left hand side Var
-    [(Assign (Var v) (Prim '+ (list (Var v1) a2))) #:when (equal? v v1)
-     (list (Instr 'addq (list (select-instr-atm a2) (Var v))))]
-    [(Assign (Var v) (Prim '+ (list a1 (Var v2)))) #:when (equal? v v2)
-     (list (Instr 'addq (list (select-instr-atm a1) (Var v))))]
+(define (sel-ins-atm c0a)
+  (match c0a
+    [(Int n) (Imm n)]
+    [(Var x) (Var x)]
+    [(Bool b) 
+     (match b
+      [#t (Imm 1)]
+      [#f (Imm 0)])]))
+
+(define (sel-ins-stmt c0stmt)
+  (match c0stmt
     [(Assign v e)
-     (select-instr-assign v e)]))
+     (if (atm? e)
+         (list (Instr 'movq (list (sel-ins-atm e) v)))
+         (match e
+           [(Prim 'read '())
+            (list (Callq 'read_int 0)
+                  (Instr 'movq (list (Reg 'rax) v)))]
+           [(Prim '- (list atm))
+            (define x86atm (sel-ins-atm atm))
+            (if (equal? x86atm v)
+                (list (Instr 'negq (list v)))
+                (list (Instr 'movq (list x86atm v))
+                      (Instr 'negq (list v))))]
+           [(Prim '+ (list atm1 atm2))
+            (define x86atm1 (sel-ins-atm atm1))
+            (define x86atm2 (sel-ins-atm atm2))
+            (cond [(equal? x86atm1 v) (list (Instr 'addq (list x86atm2 v)))]
+                  [(equal? x86atm2 v) (list (Instr 'addq (list x86atm1 v)))]
+                  [else (list (Instr 'movq (list x86atm1 v))
+                              (Instr 'addq (list x86atm2 v)))])]
+           [(Prim 'not (list atm))
+            (if (eqv? v atm)
+                (list (Instr 'xorq (list (Imm 1) v)))
+                (list (let ([atm_ (sel-ins-atm atm)])
+                        (Instr 'movq (list atm_ v)))
+                      (Instr 'xorq (list (Imm 1) v))))]
+           [(Prim 'eq? (list atm1 atm2))
+            (let ([atm1_ (sel-ins-atm atm1)]
+                  [atm2_ (sel-ins-atm atm2)]
+                  [v_ (sel-ins-atm v)])
+              (list
+               (Instr 'cmpq (list atm2_ atm1_))
+               (Instr 'set (list 'e (Reg 'al)))
+               (Instr 'movzbq (list (Reg 'al) v_))))]
+           [(Prim '< (list atm1 atm2))
+           (let ([atm1_ (sel-ins-atm atm1)]
+                  [atm2_ (sel-ins-atm atm2)]
+                  [v_ (sel-ins-atm v)])
+              (list
+               (Instr 'cmpq (list atm2_ atm1_))
+               (Instr 'set (list 'l (Reg 'al)))
+               (Instr 'movzbq (list (Reg 'al) v_))))]))]))
 
-(define (select-instr-tail t)
-  (match t
-    [(Seq stmt t*) 
-     (append (select-instr-stmt stmt) (select-instr-tail t*))]
-    [(Return (Prim 'read '())) 
-     (list (Callq 'read_int) (Jmp 'conclusion))]
-    [(Return e) (append
-                 (select-instr-assign (Reg 'rax) e)
-                 (list (Jmp 'conclusion)))]))
+(define (sel-ins-tail c0t)
+  (match c0t
+    [(Return e)
+     (append (sel-ins-stmt (Assign (Reg 'rax) e))
+             (list (Jmp 'conclusion)))]
+    [(Seq stmt tail)
+     (define x86stmt (sel-ins-stmt stmt))
+     (define x86tail (sel-ins-tail tail))
+     (append x86stmt x86tail)]
+    [(Goto label)
+     (list (Jmp label))]
+    [(IfStmt (Prim 'eq? (list arg1 arg2)) (Goto label1) (Goto label2))
+     (let ([arg1_ (sel-ins-atm arg1)]
+           [arg2_ (sel-ins-atm arg2)])
+       (list
+        (Instr 'cmpq (list arg2_ arg1_))
+        (JmpIf 'e label1)
+        (Jmp label2)))]
+    [(IfStmt (Prim '< (list arg1 arg2)) (Goto label1) (Goto label2))
+     (let ([arg1_ (sel-ins-atm arg1)]
+           [arg2_ (sel-ins-atm arg2)])
+       (list
+        (Instr 'cmpq (list arg2_ arg1_))
+        (JmpIf 'l label1)
+        (Jmp label2)))]))
 
 (define (select-instructions p)
   (match p
-    [(CProgram info (list (cons 'start t)))
-     (X86Program info
-       (list (cons 'start (Block '() (select-instr-tail t)))))]))
+    [(CProgram info es)
+     (X86Program info (for/list ([ls es])
+                        (cons (car ls) (Block '() (sel-ins-tail (cdr ls))))))]))
+
+
+;(X86Program
+; '((locals
+;    x1751720
+;    y1751721
+;    tmp1751760
+;    tmp1751761
+;    tmp1751762
+;    tmp1751763
+;    tmp1751764
+;    tmp1751765)
+;   (locals-types
+;    (tmp1751760 . Boolean)
+;    (x1751720 . Integer)
+;    (tmp1751765 . Integer)
+;    (tmp1751763 . Boolean)
+;    (tmp1751764 . Integer)
+;    (tmp1751761 . Boolean)
+;    (y1751721 . Integer)
+;    (tmp1751762 . Boolean)))
+; (list
+;  (cons
+;   'start
+;   (Block
+;    '()
+;    (list
+;     (Callq 'read_int 0)
+;     (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
+;     (Callq 'read_int 0)
+;     (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
+;     (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
+;     (Instr 'set (list 'l (Reg 'al)))
+;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
+;     (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
+;     (Instr 'set (list 'e (Reg 'al)))
+;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
+;     (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
+;     (Instr 'set (list 'e (Reg 'al)))
+;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
+;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
+;     (JmpIf 'e 'l1751807)
+;     (Jmp 'l1751808))))
+;  (cons
+;   'l1751808
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763)))
+;     (Jmp 'l1751806))))
+;  (cons
+;   'l1751807
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763)))
+;     (Jmp 'l1751806))))
+;  (cons
+;   'l1751806
+;   (Block
+;    '()
+;    (list
+;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
+;     (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
+;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
+;     (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
+;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
+;     (JmpIf 'e 'l1751804)
+;     (Jmp 'l1751805))))
+;  (cons
+;   'l1751805
+;   (Block
+;    '()
+;    (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion))))
+;  (cons
+;   'l1751804
+;   (Block
+;    '()
+;    (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion))))))
+
+
+
 
 ;;==============================================================
 ;; live --- interference --- color
@@ -1165,25 +1334,32 @@
     [else (error "free-vars, unhandled" arg)]))
 
 (define (read-vars instr)
+  ;(printf "instr is ~a \n" instr)
   (match instr
-    [(Instr 'movq (list s d)) (free-vars s)]
-    [(Instr name arg*)
-     (apply set-union (for/list ([arg arg*]) (free-vars arg)))]
     ;;[(Callq f) (set)]
     [(Callq f arity) (set)]
     ;;[(Callq f arity)
     ;; (apply set-union (for/list ([a arity]) (free-vars a)))]
     [(Jmp label) (set)]
+    [(JmpIf cc label)
+     (set)]
+    [(Instr 'movq (list s d)) (free-vars s)]
+    [(Instr name arg*)
+     (if (eq? name 'set)
+         (set)
+         (apply set-union (for/list ([arg arg*]) (free-vars arg))))]
     [else (error "read-vars unmatched" instr)]))
 
 (define (write-vars instr)
   (match instr
-    [(Instr 'movq (list s d)) (free-vars d)]
-    [(Instr name arg*) (free-vars (last arg*))]
     [(Jmp label) (set)]
     ;;[(Callq f) (set)]
     [(Callq f arity) (set)]
-    ;;[(Callq f arity) 
+    ;;[(Callq f arity)
+    [(JmpIf cc label)
+     (set)]
+    [(Instr 'movq (list s d)) (free-vars d)]
+    [(Instr name arg*) (free-vars (last arg*))]
     [else (error "write-vars unmatched" instr)]))
 
 (define (uncover-live-instr live-after)
@@ -1212,15 +1388,201 @@
      (Block new-info ss)]
     [else
      (error "R1-reg/uncover-live-block unhandled" ast)]))
+;
+;;; what is args of the uncover-list
+;;; what is the ast
+;;; it is the result of the instruction selection
+;(define (uncover-live ast)
+;  (match ast
+;    [(X86Program info (list (cons 'start block)))
+;     (define new-block (uncover-live-block block (set)))
+;     (X86Program info (list (cons 'start new-block)))]))
 
-;; what is args of the uncover-list
-;; what is the ast
-;; it is the result of the instruction selection
+;;-----------------------
+
+;(define (uncover-live p)
+;  (match p
+;    [(X86Program info es)
+;     ;; 构造图？
+;     (define cfg-with-edges (isomorph es))
+;     ;; 翻转边
+;     (define cfg-we-tp (transpose cfg-with-edges))
+;     ;; 返回顶点 '(l599652 l599651 l599653 l599655 l599654 start)
+;     (define reverse-top-order (tsort cfg-we-tp))
+;     (X86Program
+;      info
+;      (foldl
+;       (lambda (label cfg)
+;         (begin
+;           ;; 找出block
+;           (define block (cdr (assv label es)))
+;           ;; block中的指令和对应的info
+;           (define-values (instr+ bl-info)
+;             (match block
+;               [(Block bl-info instr+)
+;                (values instr+ bl-info)]))
+;           ;; 比如start的为l599654 和 l599655
+;           (define neighbors (get-neighbors cfg-with-edges label))
+;           ;; 合并跳转block的liveness
+;           (define live-after
+;             (foldr
+;              (lambda (nbr lv-after)
+;                (set-union
+;                 lv-after
+;                 ; the lv-before of its neighbor
+;                 ; TODO this assv is failing? or see above
+;                 (begin
+;                   (match (cdr (assv nbr es));;(assv nbr cfg))
+;                     [(Block bl-info instr+)
+;                      (car bl-info)]))))
+;              '()
+;              (filter (lambda (vtx) (not (eqv? vtx 'conclusion)))
+;                      neighbors)))
+;           (define liveness-blk (liveness instr+ live-after))
+;           (define blonk (Block liveness-blk instr+))
+;           (cons `(,label . ,blonk) cfg)))
+;       '() ;; init 
+;       ; remove conclusion from liveness analysis since we have not
+;       ; created it yet
+;       (filter (lambda (vtx) (not (eqv? vtx 'conclusion)))
+;               reverse-top-order)))]))
+
+;;--------------------------------
+
+(define (adjacent-instr s)
+  (match s
+    [(Jmp label)
+     (cond [(string-suffix? (symbol->string label) "conclusion") (set)]
+           [else (set label)])]
+    [(JmpIf cc label) (set label)]
+    [else (set)]))
+
+;; 'start 的adjacent-instrs为 l599654 和 l599655
+(define (adjacent-instrs b)
+  (match b
+    [(Block info ss) ;; ss为指令list
+     (for/fold ([outs (set)]) ([s ss]) ;; (set) 为outs的初始值
+       (set-union outs (adjacent-instr s)))]
+    ))
+
+(define (CFG->graph cfg)
+  (define G (directed-graph '()))
+  (for ([label (in-dict-keys cfg)])
+    ;; label是顶点
+    (add-vertex! G label))
+  (for ([(s b) (in-dict cfg)])
+    (for ([t (adjacent-instrs b)])
+      ;; 'start -> t ; t是个set
+      (add-directed-edge! G s t)))
+  (printf "G edges is ~a \n" (get-edges G))
+  G)
+
+(define (live-before label CFG-hash)
+  (match (hash-ref CFG-hash label)
+    [(Block info ss)
+     (car (dict-ref info 'lives))]))
+
+(define (uncover-live-CFG cfg)
+  (define G (CFG->graph cfg))
+  (define CFG-hash (make-hash))
+  (for ([label (tsort (transpose G))])
+    (define live-after
+      (for/fold ([lives (set)])
+                ([lbl (in-neighbors G label)])
+        (set-union lives (live-before lbl CFG-hash))))
+    (define new-block
+      (uncover-live-block (dict-ref cfg label) live-after))
+    (hash-set! CFG-hash label new-block)
+    )
+  (hash->list CFG-hash))
+
 (define (uncover-live ast)
+  (verbose "uncover-live " ast)
   (match ast
-    [(X86Program info (list (cons 'start block)))
-     (define new-block (uncover-live-block block (set)))
-     (X86Program info (list (cons 'start new-block)))]))
+    [(X86Program info G)
+     (X86Program info (uncover-live-CFG G))]
+    ))
+
+
+(uncover-live
+ (X86Program
+ '((locals
+    x1751720
+    y1751721
+    tmp1751760
+    tmp1751761
+    tmp1751762
+    tmp1751763
+    tmp1751764
+    tmp1751765)
+   (locals-types
+    (tmp1751760 . Boolean)
+    (x1751720 . Integer)
+    (tmp1751765 . Integer)
+    (tmp1751763 . Boolean)
+    (tmp1751764 . Integer)
+    (tmp1751761 . Boolean)
+    (y1751721 . Integer)
+    (tmp1751762 . Boolean)))
+ (list
+  (cons
+   'start
+   (Block
+    '()
+    (list
+     (Callq 'read_int 0)
+     (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
+     (Callq 'read_int 0)
+     (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
+     (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
+     (Instr 'set (list 'l (Reg 'al)))
+     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
+     (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
+     (Instr 'set (list 'e (Reg 'al)))
+     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
+     (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
+     (Instr 'set (list 'e (Reg 'al)))
+     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
+     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
+     (JmpIf 'e 'l1751807)
+     (Jmp 'l1751808))))
+  (cons
+   'l1751808
+   (Block
+    '()
+    (list
+     (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763)))
+     (Jmp 'l1751806))))
+  (cons
+   'l1751807
+   (Block
+    '()
+    (list
+     (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763)))
+     (Jmp 'l1751806))))
+  (cons
+   'l1751806
+   (Block
+    '()
+    (list
+     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
+     (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
+     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
+     (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
+     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
+     (JmpIf 'e 'l1751804)
+     (Jmp 'l1751805))))
+  (cons
+   'l1751805
+   (Block
+    '()
+    (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion))))
+  (cons
+   'l1751804
+   (Block
+    '()
+    (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion)))))))
+
 
 
 ;;==========
@@ -1653,7 +2015,7 @@
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lif ,type-check-Lif)
      ("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
      ("optimize jumps" ,optimize-jumps ,interp-Cif ,type-check-Cif)
-     ;;("instruction selection" ,select-instructions ,interp-x86-0)
+     ("instruction selection" ,select-instructions ,interp-x86-1)
      ;;("assign homes" ,assign-homes ,interp-x86-0)
      ;;("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
