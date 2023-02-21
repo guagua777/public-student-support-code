@@ -2134,6 +2134,7 @@
                                (fix-block (cdr instrs) cfg removed-blocks all-blocks curr-block)))]
               [_ (cons instr (fix-block (cdr instrs) cfg removed-blocks all-blocks curr-block))]))]))
 
+;; cfg 在explicate-control 与 uncover-live中都有构建
 (define (remove-jumps p)
   (match p
     [(X86Program info blocks)
