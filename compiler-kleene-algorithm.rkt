@@ -35,11 +35,12 @@
 
 ;; the inputs to the transfer function come from the predecessor nodes in the control-flow graph
 
-;; b5 -> m
-;; b7 -> b5
-;; b8 -> b5
+
+;; main -> b5 
 ;; b5 -> b7
-;; con -> b8
+;; b5 -> b8
+;; b7 -> b5
+;; b8 -> conclusion
 (define (analyze-dataflow G transfer bottom join)
   (define mapping (make-hash))
   (for ([v (in-vertices G)])
@@ -47,18 +48,18 @@
   (define worklist (make-queue))
   (for ([v (in-vertices G)])
     (enqueue! worklist v))
-  ;; main -> b5 
-  ;; b5 -> b7
-  ;; b5 -> b8
+  ;; b5 -> main
   ;; b7 -> b5
-  ;; b8 -> conclusion
+  ;; b8 -> b5
+  ;; b5 -> b7
+  ;; con -> b8
   (define trans-G (transpose G))
   (while (not (queue-empty? worklist))
          ;; assume node is b5
          (define node (dequeue! worklist))
          ;; The live-after for block5 is the union of the live-before sets for block7 and block8, which is {i, rsp, sum}. 
          (define input (for/fold ([state bottom])
-                                 ;; pred is b7 and b8
+                                 ;; pred should is b7 and b8, but in-neighbors gets main and b7. why??
                                  ([pred (in-neighbors trans-G node)])
                          (join state (dict-ref mapping pred))))
          ;; So the liveness analysis for block5 computes {i, rsp, sum}. 
