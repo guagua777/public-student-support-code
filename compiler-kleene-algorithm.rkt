@@ -54,11 +54,11 @@
   ;; b8 -> conclusion
   (define trans-G (transpose G))
   (while (not (queue-empty? worklist))
-         ;; 假设是b5
+         ;; assume node is b5
          (define node (dequeue! worklist))
          ;; The live-after for block5 is the union of the live-before sets for block7 and block8, which is {i, rsp, sum}. 
          (define input (for/fold ([state bottom])
-                                 ;; pred 为 b7和b8
+                                 ;; pred is b7 and b8
                                  ([pred (in-neighbors trans-G node)])
                          (join state (dict-ref mapping pred))))
          ;; So the liveness analysis for block5 computes {i, rsp, sum}. 
