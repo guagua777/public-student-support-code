@@ -2,6 +2,7 @@
 (require racket/set racket/stream)
 (require racket/fixnum)
 (require graph)
+(require data/queue)
 (require "interp-Lint.rkt")
 (require "interp-Lvar.rkt")
 (require "interp-Cvar.rkt")
@@ -63,192 +64,6 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;(define (type-check-exp env)
-;  (lambda (e)
-;    (match e
-;      [(Var x) (dict-ref env x)]
-;      [(Int n) 'Integer]
-;      [(Bool b) 'Boolean]
-;      [(Prim op args) ((type-check-prim env) e)]
-;      [(Let x e body)
-;       (define Te ((type-check-exp env) e))
-;       (define Tb ((type-check-exp (dict-set env x Te)) body))
-;       Tb]
-;      [(If cnd cnsq alt)
-;       (unless (eqv? 'Boolean ((type-check-exp env) cnd))
-;         (error "condition given to if should be bool, given " cnd))
-;       (define Tc ((type-check-exp env) cnsq))
-;       (define Ta ((type-check-exp env) alt))
-;       (unless (equal? Tc Ta)
-;         (error (string-append "consequent and alternative in if should "
-;                               "have same type, given")
-;                (list Tc Ta)))
-;       Tc]
-;      [else
-;       (error "type-check-exp couldn't match" e)])))
-;
-;(define (type-check-prim env)
-;  (lambda (prim)
-;    (let ([recur (type-check-exp env)])
-;      (match prim
-;        [(Prim 'read (list)) 'Integer]
-;        [(Prim 'eq? (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (eqv? Te1 Te2)
-;             (and (eqv? Te1 Te1)
-;                  (or (eqv? Te1 'Integer)
-;                      (eqv? Te1 'Boolean)))
-;             'Boolean
-;             (error "eq? should take two ints or two bools, given " (list e1 e2)))]
-;        [(Prim '< (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Boolean
-;             (error "< should take two ints, given " (list e1 e2)))]
-;        [(Prim '<= (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Boolean
-;             (error "<= should take two ints, given " (list e1 e2)))]
-;        [(Prim '> (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Boolean
-;             (error "> should take two ints, given " (list e1 e2)))]
-;        [(Prim '>= (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Boolean
-;             (error ">= should take two ints, given " (list e1 e2)))]
-;        [(Prim '+ (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Integer
-;             (error "+ should take two ints, given " (list e1 e2)))]
-;        [(Prim '- (list e))
-;         (define Te (recur e))
-;         (if (eqv? Te 'Integer)
-;             'Integer
-;             (error "- should take one int, given " (list e)))]
-;        [(Prim '- (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Integer)
-;                  (eqv? Te2 'Integer))
-;             'Integer
-;             (error "- should take two ints, given " (list e1 e2)))]
-;        [(Prim 'and (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Boolean)
-;                  (eqv? Te2 'Boolean))
-;             'Boolean
-;             (error "and should take two bools, given " (list e1 e2)))]
-;        [(Prim 'or (list e1 e2))
-;         (define Te1 (recur e1))
-;         (define Te2 (recur e2))
-;         (if (and (eqv? Te1 'Boolean)
-;                  (eqv? Te2 'Boolean))
-;             'Boolean
-;             (error "or should take two bools, given " (list e1 e2)))]
-;        [(Prim 'not (list e))
-;         (define Te (recur e))
-;         (if (eqv? Te 'Boolean)
-;             'Boolean
-;             (error "not should take one bool, given " (list e)))]))))
-;             
-;(define (type-check p)
-;  (match p
-;    [(Program info body)
-;     (define Tb ((type-check-exp '()) body))
-;     (unless (equal? Tb 'Integer)
-;       (error "result of the program must be an integer, not " Tb))
-;     (Program info body)]))
-
-
-;(define (check-bool e) 
-;    (match e
-;        ['Boolean 'Boolean]
-;        [else (error "expected Boolean but got" e)]
-;        ))
-;
-;(define (check-int e) 
-;    (match e
-;        ['Integer 'Integer]
-;        [else (error "expected Integer but got" e)]
-;        ))
-;
-;(define (check-eq ts)
-;    (if (equal? (first ts) (last ts))
-;        (void)
-;        (error "Cannot compare items of different types" ts)))
-;
-;(define (type-check-op op ts)
-;    (match op
-;        ['read 'Integer]
-;        ['+ (for ([t ts]) (check-int t)) 'Integer]
-;        ['- (for ([t ts]) (check-int t)) 'Integer]
-;        ['not (for ([t ts]) (check-bool t)) 'Boolean]
-;        ['and (for ([t ts]) (check-bool t)) 'Boolean]
-;        ['or (for ([t ts]) (check-bool t)) 'Boolean]
-;        ['eq? (check-eq ts) 'Boolean]
-;        ['cmp (check-eq ts) 'Boolean]
-;        ['< (for ([t ts]) (check-int t)) 'Boolean]
-;        ['<= (for ([t ts]) (check-int t)) 'Boolean]
-;        ['> (for ([t ts]) (check-int t)) 'Boolean]
-;        ['>= (for ([t ts]) (check-int t)) 'Boolean]
-;        [else (error "unknown operator" op)]
-;))
-;
-;(define (type-check-exp env)
-;  (lambda (e)
-;    (match e
-;      [(Var x) (dict-ref env x)]
-;      [(Int n) 'Integer]
-;      [(Bool b) 'Boolean]
-;      [(Let x e body)
-;        (define Te ((type-check-exp env) e))
-;        (define Tb ((type-check-exp (dict-set env x Te)) body))
-;        Tb]
-;
-;      [(If e1 e2 e3)
-;       (define T1 ((type-check-exp env) e1))
-;       (unless (equal? T1 'Boolean) 
-;         (error "Conditional of if statement must resolve to a boolean. Was " T1))
-;       (define T2 ((type-check-exp env) e2))
-;       (define T3 ((type-check-exp env) e3))
-;       (unless (equal? T2 T3) 
-;         (error "Return types of both branches of If must match. Got" T2 " and " T3))
-;       T2]
-;      [(Prim op es)
-;        (define ts
-;           (for/list ([e es]) ((type-check-exp env) e)))
-;        (define t-ret (type-check-op op ts))
-;        t-ret]
-;      [else
-;       (error "type-check-exp couldn't match" e)])))
-;
-;(define (type-checker e)
-;    (match e
-;      [(Program info body)
-;       (define Tb ((type-check-exp '()) body))
-;       (unless (equal? Tb 'Integer)
-;         (error "result of the program must be an integer, not " Tb))
-;       (Program info body)]
-;      ))
-
-
 ;; 想一想环境中保存的是什么
 (define (uniquify-exp env)
   (lambda (e)
@@ -271,21 +86,6 @@
   (match p
     [(Program info e)
      (Program info ((uniquify-exp '()) e))]))
-
-;(Program
-; '()
-; (If
-;  (Let 'x4501192 (Int 100) (Prim '> (list (Var 'x4501192) (Int 10))))
-;  (If
-;   (Prim
-;    'and
-;    (list (Prim '> (list (Int 10) (Int 1))) (Prim '> (list (Int 10) (Int 2)))))
-;   (Int 10)
-;   (Int 20))
-;  (Int 30)))
-
-;(and e1 e2) ⇒ (if e1 e2 #f)
-;(or e1 e2) ⇒ (if e1 #t e2)
 
 (define shrink-exp
   (lambda (e)
@@ -310,114 +110,6 @@
     (match p
       [(Program info e)
        (Program info (shrink-exp e))])))
-
-;for/list
-;与
-;for/lists的区别
-;
-;(for/list 待遍历的集合 对元素的处理)
-;(for/lists 结果集values 待遍历的集合 对元素的处理)
-
-
-;; 思路是什么?
-;; (+ 5 (- 6))
-;; (let ([tmp4735188 (- 6)])
-;;    (+ 5 tmp4735188))
-;; 将复杂表达式 转换成 原子表达式（在这期间会生成临时变量，因此需要记录临时变量和对应的复杂表达式）
-;(- 10) ⇒  tmp.1
-;          ((tmp.1 . (- 10)))
-
-;(define (rco-atom e)
-;  (match e
-;    [(Var x) (values (Var x) '())]
-;    [(Int n) (values (Int n) '())]
-;    [(Let x rhs body)
-;     ;; 想一想返回的应该是什么？
-;     ;; 最后的表达式，以及最后表达式中变量和原子表达式的对应关系列表
-;     ;; 变成atom之后的表达式，以及中间变量与对应的atom表达式的对应列表
-;     (define new-rhs (rco-exp rhs))
-;     (define-values (new-body body-ss) (rco-atom body))
-;     (values new-body (append `((,x . ,new-rhs)) body-ss))]
-;    [(Prim op es)
-;     (define-values (new-es sss)
-;       (for/lists (l1 l2) ([e es]) (rco-atom e)))
-;     (define ss (append* sss))
-;     (define tmp (gensym 'tmp))
-;     (values (Var tmp)
-;             (append ss `((,tmp . ,(Prim op new-es)))))]))
-
-
-;; rco-exp : exp -> exp
-;; 最后会变成一个let
-;; 返回最后的结果
-;(define (rco-exp e)
-;  (match e
-;    [(Var x) (Var x)]
-;    [(Int n) (Int n)]
-;    [(Let x rhs body)
-;     (Let x (rco-exp rhs) (rco-exp body))]
-;    [(Prim op es)
-;     ;; an atomic expression and
-;     ;; an alist mapping temporary variables to complex subexpressions.
-;     (define-values (new-es sss)
-;       (for/lists (l1 l2) ([e es]) (rco-atom e)))
-;     (make-lets (append* sss) (Prim op new-es))]))
-
-;; remove-complex-opera* : R1 -> R1
-;(define (remove-complex-opera* p)
-;  (match p
-;    [(Program info e)
-;     (Program info (rco-exp e))]))
-
-;; resolve1
-;(define (rco-atom e)
-;  (match e
-;      [(Var x) (values (Var x) '())]
-;      [(Int n) (values (Int n) '())]
-;      [(Bool bool) (values (Bool bool) '())]
-;      [(Let x e body)
-;       (define tmp (gensym "tmp"))
-;       (define-values (e-val e-alist) (rco-atom e))
-;       (values (Var tmp) (append e-alist  `((,tmp . ,(Let x e-val (rco-exp body))))))]
-;      [(Prim op es)
-;       (define tmp (gensym "tmp"))
-;       (define-values (new-es bs)
-;         (for/lists (l1 l2) ([e es])
-;           (rco-atom e)))
-;       (values (Var tmp) (append bs `((,tmp . ,(Prim op new-es)))))]
-;      [(If cond exp else)
-;       (define tmp (gensym "tmp"))
-;       (define cond-val (rco-exp cond))
-;       (define exp-val (rco-exp exp))
-;       (define else-val (rco-exp else))
-;       (values (Var tmp) `((,tmp . ,(If cond-val exp-val else-val))))]
-;      ))
-;
-;(define (rco-exp e)
-;  (match e
-;      [(Var x) (Var x)]
-;      [(Int n) (Int n)]
-;      [(Bool bool) (Bool bool)]
-;      [(Let x e body)
-;       (begin (define e-val (rco-exp e))
-;              (Let x e-val (rco-exp body)))]
-;      [(Prim op es)
-;       (let [(exps (split-pairs (for/list ([e es]) 
-;                                     (begin (define-values (var alist) (rco-atom e)) 
-;                                            `(,var . ,alist)))))]
-;         (expand-alist (cdr exps) (Prim op (car exps))))]
-;      [(If cond exp else)
-;       (define exp-var (rco-exp exp))
-;       (define else-var (rco-exp else))
-;       (define cond-var (rco-exp cond))
-;       (If cond-var exp-var else-var)]
-;      ))
-;
-;(define (remove-complex-opera* p)
-;  (match p
-;    [(Program info e)
-;     (Program info (rco-exp e))]
-;    ))
 
 
 (define (remove-complex-opera* p)
@@ -479,78 +171,6 @@
 
 
 
-;; tail ::= (Return exp) | (Seq stmt tail)
-;; The explicate_tail function takes an exp in LVar as input
-;; and produces a tail in CVar (see figure 2.13). 
-;(define (explicate-tail exp)
-;  (match exp
-;    [(Var x) (values (Return (Var x)) '())]
-;    [(Int n) (values (Return (Int n)) '())]
-;    ;; 先想想应该返回的是什么
-;    ;; 应该返回的是顺序的赋值表达式列表，是个Seq，对let中变量和值进行赋值
-;    [(Let lhs rhs body)
-;     ;; the right-hand side of a let executes before its body
-;;     (let*-values
-;;         ([(body-c0 body-vars) (explicate-tail body)]
-;;          [(new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0)])
-;;       (values new-tail (cons lhs (append new-rhs-vars body-vars))))
-;     ;; body-vars为body中的变量
-;     ;; body-c0为tail，即为(Return exp) 或者是 (Seq stmt tail)
-;     (define-values (body-c0 body-vars) (explicate-tail body))
-;     ;; (printf "exp is ~a , body-c0 is ------ ~a \n" exp body-c0)
-;     (define-values (new-tail new-rhs-vars) (explicate-assign rhs (Var lhs) body-c0))
-;     (values new-tail (cons lhs (append new-rhs-vars body-vars)))
-;     ]
-;    [(Prim op es)
-;     (values (Return (Prim op es)) '())]))
-
-;; The explicate_assign function takes an exp in LVar,
-;; the variable to which it is to be assigned,
-;; and a tail in CVar for the code that comes after the assignment.
-;; The explicate_assign function returns a tail in CVar.
-;; the c parameter is used for accumulating the output
-;; 把r1exp赋值给变量v
-;;想想返回值是什么？
-;; 对变量进行赋值后，形成的Seq
-;(define (explicate-assign r1exp v c)
-;  (match r1exp
-;    [(Int n)
-;     ;; 在c的前面加上，这样就反过来了，最里面的会跑到最外面来
-;     (values (Seq (Assign v (Int n)) c) '())]
-;    [(Prim 'read '())
-;     (values (Seq (Assign v (Prim 'read '())) c) '())]
-;    [(Prim '- (list e))
-;     (values (Seq (Assign v (Prim '- (list e))) c)
-;             '())] 
-;    [(Prim '+ (list e1 e2))
-;     (values (Seq (Assign v (Prim '+ (list e1 e2))) c)
-;             '())] 
-;    [(Var x)
-;     (values (Seq (Assign v (Var x)) c) '())]
-;    [(Let x e body) 
-;     (define-values (tail let-binds) (explicate-assign body v c))
-;     (define-values (tail^ let-binds^) (explicate-assign e (Var x) tail))
-;     ;; 想一想为什么不是(append let-binds^ let-binds)
-;     ;(values tail^ (cons x (append let-binds^ let-binds)))]
-;     (values tail^ (cons x (append let-binds let-binds^)))]
-;    [else
-;     (error "error explicate-assign ")]))
-;     (printf "else v r1exp is ******* ~a ~a \n" v r1exp)
-;     (values (Seq (Assign v r1exp) c) '())]))
-
-;; explicate-control : R1 -> C0
-;(define (explicate-control p)
-;  (match p
-;    [(Program info body)
-;     (begin
-;       (define-values (tail let-binds) (explicate-tail body))
-;       ;;(printf "-=-=-=-=-=-=-= ~a ~a \n" tail vars)
-;       ;; contains an alist that associates the symbol locals with a list of all the variables used in the program. 
-;       (CProgram (cons (cons 'locals let-binds) info)
-;                 (list (cons 'start tail))))]))
-  ;(error "TODO: code goes here (explicate-control)"))
-
-
 
 ;; explicate-control 思路
 
@@ -563,97 +183,6 @@
      (let ([label (gensym 'block)])
        (set! basic-blocks (cons (cons label tail) basic-blocks))
        (Goto label))]))
-
-;(define (create_block tail)
-;  (delay
-;    (define t (force tail))
-;    (match t
-;      [(Goto label) (Goto label)]
-;      [else
-;       (let ([label (gensym 'block)])
-;         (set! basic-blocks (cons (cons label t) basic-blocks))
-;         (Goto label))])))
-
-;;------------------------------------
-;(define (do-assignment exp var tail)
-;  (match exp
-;    [(Return (Int n)) (Seq (Assign var (Int n)) tail)]
-;    [(Return (Var x)) (Seq (Assign var (Var x)) tail)]
-;    [(Return (Bool bool)) (Seq (Assign var (Bool bool)) tail)]
-;    [(Return (Prim op es)) (Seq (Assign var (Prim op es)) tail)]
-;    [(Seq stmt seq-tail) (Seq stmt (do-assignment seq-tail var tail))]))
-;
-;(define (explicate-assign exp var tail cgraph)
-;  (match exp
-;    [(If pred then else)
-;     (define tail-block (gensym "block"))
-;     (define-values (then-block then-vars then-graph) (explicate-assign then var (Goto tail-block) cgraph))
-;     (define-values (else-block else-vars else-graph) (explicate-assign else var (Goto tail-block) then-graph))
-;     (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-block else-block else-graph))
-;     (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars)) 
-;               (cons `(,tail-block . ,tail) pred-cgraph))]
-;    [(Let x exp body)
-;      (begin (define-values (exp-body body-vars body-graph) (explicate-assign body var tail cgraph))
-;             (define-values (body-tail vars newgraph) (explicate-assign exp (Var x) exp-body body-graph))
-;             (values body-tail (cons (Var x) (remove-duplicates (append body-vars vars))) newgraph))]
-;    [x (begin (define-values (exp-tail exp-vars exp-graph) (explicate-tail exp cgraph))
-;              (values (do-assignment exp-tail var tail) exp-vars exp-graph))
-;  ]))
-;
-;(define (explicate-pred e true-block false-block cgraph)
-;  (match e
-;    [(Bool b) (values (if b true-block false-block) '() cgraph))]
-;
-;    ;;[(Bool bool) 
-;    ;; (values (IfStmt (Prim 'eq? (list (Bool bool) (Bool #t))) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
-;     
-;    [(Var x) 
-;     (let ([true-lbl (gensym "block")]
-;           [false-blb (gensym "block")])
-;      (values (IfStmt (Prim 'eq? (list (Var x) (Bool #t))) (Goto true-lbl) (Goto false-lbl)) '() 
-;          ... cgraph ...)]
-;    [(Prim 'not (list var)) (values (IfStmt (Prim 'eq? (list var (Bool #f))) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
-;    [(Prim cmp es) (values (IfStmt (Prim cmp es) (Goto true-lbl) (Goto false-lbl)) '() cgraph)]
-;    [(Let x exp body)
-;      (begin (define-values (exp-body body-vars body-graph) (explicate-pred body true-lbl false-lbl cgraph))
-;             (define-values (tail vars tail-graph) (explicate-assign exp (Var x) exp-body body-graph)) 
-;             (values tail (cons (Var x) (remove-duplicates (append body-vars vars))) tail-graph))]
-;    [(If pred then else) 
-;     (let ([true-lbl (gensym "block")]
-;           [false-lbl (gensym "block")])
-;        (begin (define-values (then-exp then-vars then-cgraph) (explicate-pred then (Goto true-lbl) (Goto false-lbl) cgraph))
-;               (define-values (else-exp else-vars else-cgraph) (explicate-pred else (Goto true-lbl) (Goto false-lbl) then-cgraph))
-;               (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-exp else-exp else-cgraph))
-;               (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars))
-;                  ... pred-cgraph))))]
-;    ))
-;                                  
-;(define (explicate-tail e cgraph)
-;  (match e
-;      [(Var x) (values (Return (Var x)) '() cgraph)]
-;      [(Int n) (values (Return (Int n)) '() cgraph)]
-;      [(Bool bool) (values (Return (Bool bool)) '() cgraph)]
-;      [(Let x e body)
-;       (begin (define-values (exp-body body-vars body-graph) (explicate-tail body cgraph))
-;         (define-values (tail vars newgraph) (explicate-assign e (Var x) exp-body body-graph))
-;         (values tail (cons (Var x) (remove-duplicates (append body-vars vars))) newgraph))]
-;      [(Prim op es)
-;       (values (Return (Prim op es)) '() cgraph)]
-;      [(If pred then else)
-;        (let ([then-block (gensym "block")] [else-block (gensym "block")])
-;          (begin (define-values (then-exp then-vars then-cgraph) (explicate-tail then cgraph))
-;                 (define-values (else-exp else-vars else-cgraph) (explicate-tail else then-cgraph))
-;                 (define-values (pred-exp pred-vars pred-cgraph) (explicate-pred pred then-block else-block else-cgraph))
-;                 (values pred-exp (remove-duplicates (append then-vars else-vars pred-vars))
-;                      (cons `(,then-block . ,then-exp) (cons `(,else-block . ,else-exp) pred-cgraph)))))]
-;      ))
-;
-;(define (explicate-control p)
-;  (match p
-;    [(Program info e)
-;     (begin (define-values (tail vars graph) (explicate-tail e '())) 
-;            (CProgram `((locals . ,vars)) (cons `(start . ,tail) graph)))]
-;    ))
 
 ;;----------------------
 (define Explicate-CFG '())
@@ -739,28 +268,6 @@
     ))
 
 
-;(define (explicate-pred e tail1 tail2)
-;  (match e
-;    [(Bool b)
-;     (if b
-;         (values tail1 '())
-;         (values tail2 '()))]
-;    [(Var v)
-;     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t)))
-;                     (create-block tail1)
-;                     (create-block tail2))
-;             '())]
-;    [(Prim op (list e1 e2))
-;     (values (IfStmt (Prim op (list e1 e2))
-;                     (create-block tail1)
-;                     (create-block tail2))
-;             '())]
-;    [(Let x v body)
-;     ...
-     
-     
-    
-
 (define (explicate-control p)
   (set! Explicate-CFG '())
   (match p
@@ -771,75 +278,29 @@
         (cons (cons 'start tail) Explicate-CFG)))]
     ))
 
+;;---------
 
-;(CProgram
-; '((locals tmp397488 tmp397489 tmp397490 tmp397491 tmp397492))
-; (list
-;  (cons
-;   'start
-;   (Seq
-;    (Assign (Var 'tmp397488) (Prim 'read '()))
-;    (Seq
-;     (Assign (Var 'tmp397489) (Prim 'eq? (list (Var 'tmp397488) (Int 0))))
-;     (Seq
-;      (Assign (Var 'tmp397490) (Prim 'read '()))
-;      (Seq
-;       (Assign (Var 'tmp397491) (Prim 'eq? (list (Var 'tmp397490) (Int 1))))
-;       (IfStmt
-;        (Prim 'eq? (list (Var 'tmp397489) (Bool #t)))
-;        (Goto 'l397823)
-;        (Goto 'l397824)))))))
-;  (cons 'l397824 (Seq (Assign (Var 'tmp397492) (Bool #f)) (Goto 'l397822)))
-;  (cons
-;   'l397823
-;   (Seq (Assign (Var 'tmp397492) (Var 'tmp397491)) (Goto 'l397822)))
-;  (cons
-;   'l397822
-;   (IfStmt
-;    (Prim 'eq? (list (Var 'tmp397492) (Bool #t)))
-;    (Goto 'l397820)
-;    (Goto 'l397821)))
-;  (cons 'l397821 (Return (Int 42)))
-;  (cons 'l397820 (Return (Int 0)))))
-;
-;
-;program:
-;locals:
-;'(tmp402042 tmp402043 tmp402044 tmp402045 tmp402046)
-;start:
-;    tmp402042 = (read);
-;    tmp402043 = (eq? tmp402042 0);
-;    tmp402044 = (read);
-;    tmp402045 = (eq? tmp402044 1);
-;    if (eq? tmp402043 #t)
-;       goto l402132;
-;    else
-;       goto l402133;
-;l402133:
-;    tmp402046 = #f;
-;    goto l402131;
-;l402132:
-;    tmp402046 = tmp402045;
-;    goto l402131;
-;l402131:
-;    if (eq? tmp402046 #t)
-;       goto l402129;
-;    else
-;       goto l402130;
-;l402130:
-;    return 42;
-;l402129:
-;    return 0;
+(define (analyze-dataflow G transfer bottom join)
+  (define mapping (make-hash))
+  (for ([v (in-vertices G)])
+    (dict-set! mapping v bottom))
+  (define worklist (make-queue))
+  (for ([v (in-vertices G)])
+    (enqueue! worklist v))
+  (define trans-G (transpose G))
+  (while (not (queue-empty? worklist))
+         (define node (dequeue! worklist))
+         (define input (for/fold ([state bottom])
+                                 ([pred (in-neighbors trans-G node)])
+                         (join state (dict-ref mapping pred))))
+         (define output (transfer node input))
+         (cond [(not (equal? output (dict-ref mapping node)))
+                (dict-set! mapping node output)
+                (for ([v (in-neighbors G node)])
+                  (enqueue! worklist v))]))
+  mapping)
 
-
-;In this way, jump instructions are edges in the graph and the basic blocks are the nodes.
-;Likewise, our language CIf provides the ability to label a sequence of statements and to jump to a label via goto.
-
-;These ordering constraints are the
-;reverse of a topological order on a graph representation of the program. In particular,
-;the control flow graph (CFG) (Allen 1970) of a program has a node for each basic
-;block and an edge for each jump from one block to another. It is straightforward to
-;generate a CFG from the dictionary of basic blocks.
+;;---------
 
 
 
@@ -885,18 +346,18 @@
   (match p
     [(CProgram info blocks)
       (define short-cuts (short-cut blocks))
-      (printf "short cuts is ~a \n" short-cuts)
+      ;(printf "short cuts is ~a \n" short-cuts)
       (define not-short-cut (filter (lambda (b) (or (not (is-trivial? (cdr b)))
                                                     (equal? (car b) 'start))) blocks))
-      (printf "not short cut is ~a \n" not-short-cut)
+      ;(printf "not short cut is ~a \n" not-short-cut)
       (define patched (patch-gotos short-cuts not-short-cut))
-      (printf "patched is ~a \n" patched)
+      ;(printf "patched is ~a \n" patched)
       (define ref-graph (block-list->racketgraph patched))
-      (printf "edges is ~a \n" (get-edges ref-graph))
+      ;(printf "edges is ~a \n" (get-edges ref-graph))
       ;; what is the effect of this step?
       (define has-neighbors (filter (lambda (b) (or (has-vertex? ref-graph (car b))
                                                     (equal? (car b) 'start))) patched))
-      (printf "has-neighbors is ~a \n" has-neighbors)
+      ;(printf "has-neighbors is ~a \n" has-neighbors)
       (CProgram info (patch-gotos short-cuts has-neighbors))]))
 
 ;; 最后一步的goto的label，指向当前的label
@@ -922,242 +383,6 @@
        (build-graph-optimize label block racket-cfg))
      racket-cfg)
 
-;(optimize-jumps
-;(CProgram
-; '((locals
-;    x599559
-;    y599560
-;    tmp599599
-;    tmp599600
-;    tmp599601
-;    tmp599602
-;    tmp599603
-;    tmp599604))
-; (list
-;  (cons
-;   'start
-;   (Seq
-;    (Assign (Var 'x599559) (Prim 'read '()))
-;    (Seq
-;     (Assign (Var 'y599560) (Prim 'read '()))
-;     (Seq
-;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
-;      (Seq
-;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
-;       (Seq
-;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
-;        (IfStmt
-;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
-;         (Goto 'l599654)
-;         (Goto 'l599655))))))))
-;  (cons
-;   'l599655
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l599653)))
-;  (cons
-;   'l599654
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l599653)))
-;  (cons
-;   'l599653
-;   (Seq
-;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
-;    (Seq
-;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
-;     (IfStmt
-;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
-;      (Goto 'l599651)
-;      (Goto 'l599652)))))
-;  (cons 'l599652 (Return (Var 'tmp599604)))
-;  (cons 'l599651 (Return (Var 'tmp599603))))))
-;
-;(optimize-jumps
-; (CProgram
-; '((locals
-;    x599559
-;    y599560
-;    tmp599599
-;    tmp599600
-;    tmp599601
-;    tmp599602
-;    tmp599603
-;    tmp599604))
-; (list
-;  (cons
-;   'start
-;   (Seq
-;    (Assign (Var 'x599559) (Prim 'read '()))
-;    (Seq
-;     (Assign (Var 'y599560) (Prim 'read '()))
-;     (Seq
-;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
-;      (Seq
-;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
-;       (Seq
-;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
-;        (IfStmt
-;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
-;         (Goto 'l599654)
-;         (Goto 'l599655))))))))
-;  (cons
-;   'l599655
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l511111)))
-;  (cons
-;   'l599654
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l511111)))
-;  (cons
-;   'l599653
-;   (Seq
-;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
-;    (Seq
-;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
-;     (IfStmt
-;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
-;      (Goto 'l599651)
-;      (Goto 'l599652)))))
-;  (cons
-;   'l511111 
-;   (Goto 'l599653))    
-;  (cons 'l599652 (Return (Var 'tmp599604)))
-;  (cons 'l599651 (Return (Var 'tmp599603))))))
-;
-;(optimize-jumps
-; (CProgram
-; '((locals
-;    x599559
-;    y599560
-;    tmp599599
-;    tmp599600
-;    tmp599601
-;    tmp599602
-;    tmp599603
-;    tmp599604))
-; (list
-;  (cons
-;   'start
-;   (Seq
-;    (Assign (Var 'x599559) (Prim 'read '()))
-;    (Seq
-;     (Assign (Var 'y599560) (Prim 'read '()))
-;     (Seq
-;      (Assign (Var 'tmp599599) (Prim '< (list (Var 'x599559) (Int 10))))
-;      (Seq
-;       (Assign (Var 'tmp599600) (Prim 'eq? (list (Var 'x599559) (Int 0))))
-;       (Seq
-;        (Assign (Var 'tmp599601) (Prim 'eq? (list (Var 'x599559) (Int 20))))
-;        (IfStmt
-;         (Prim 'eq? (list (Var 'tmp599599) (Bool #t)))
-;         (Goto 'l599654)
-;         (Goto 'l599655))))))))
-;  (cons
-;   'l599655
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599601)) (Goto 'l511111)))
-;  (cons
-;   'l599654
-;   (Seq (Assign (Var 'tmp599602) (Var 'tmp599600)) (Goto 'l511111)))
-;  (cons
-;   'l599653
-;   (Seq
-;    (Assign (Var 'tmp599603) (Prim '+ (list (Var 'y599560) (Int 2))))
-;    (Seq
-;     (Assign (Var 'tmp599604) (Prim '+ (list (Var 'y599560) (Int 10))))
-;     (IfStmt
-;      (Prim 'eq? (list (Var 'tmp599602) (Bool #t)))
-;      (Goto 'l599651)
-;      (Goto 'l599652)))))
-;  (cons
-;   'l511111 
-;   (Goto 'l522222))  
-;  (cons
-;   'l522222 
-;   (Goto 'l599653))    
-;  (cons 'l599652 (Return (Var 'tmp599604)))
-;  (cons 'l599651 (Return (Var 'tmp599603))))))
-
-;short cuts is #hash((l511111 . l599653)
-;                    (l599651 . l599651)
-;                    (l599652 . l599652)
-;                    (l599653 . l599653)
-;                    (l599654 . l599654)
-;                    (l599655 . l599655)
-;                    (start . start)) 
-;not short cut is
-;(
-;(start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
-;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l511111>>) 
-;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l511111>>) 
-;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
-;(l599652 . #<Return: #<Var: tmp599604>>) 
-;(l599651 . #<Return: #<Var: tmp599603>>))
-;patchs is 
-;((start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
-;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l599653>>) 
-;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l599653>>) 
-;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
-;(l599652 . #<Return: #<Var: tmp599604>>) 
-;(l599651 . #<Return: #<Var: tmp599603>>))
-;l599655和l599654中的goto替换为了l599653
-; edges is ((l599654 start)
-;           (l599651 l599653)
-;           (l599652 l599653)
-;           (l599655 start)
-;           (l599653 l599655)
-;           (l599653 l599654))
-;has-neighbors is 
-;((start . #<Seq: #<Assign: #<Var: x599559> #<Prim: read ()>> #<Seq: #<Assign: #<Var: y599560> #<Prim: read ()>> #<Seq: #<Assign: #<Var: tmp599599> #<Prim: < (#<Var: x599559> #<Int: 10>)>> #<Seq: #<Assign: #<Var: tmp599600> #<Prim: eq? (#<Var: x599559> #<Int: 0>)>> #<Seq: #<Assign: #<Var: tmp599601> #<Prim: eq? (#<Var: x599559> #<Int: 20>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599599> #<Bool: #t>)> #<Goto: l599654> #<Goto: l599655>>>>>>>) 
-;(l599655 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599601>> #<Goto: l599653>>) 
-;(l599654 . #<Seq: #<Assign: #<Var: tmp599602> #<Var: tmp599600>> #<Goto: l599653>>) 
-;(l599653 . #<Seq: #<Assign: #<Var: tmp599603> #<Prim: + (#<Var: y599560> #<Int: 2>)>> #<Seq: #<Assign: #<Var: tmp599604> #<Prim: + (#<Var: y599560> #<Int: 10>)>> #<IfStmt: #<Prim: eq? (#<Var: tmp599602> #<Bool: #t>)> #<Goto: l599651> #<Goto: l599652>>>>) 
-;(l599652 . #<Return: #<Var: tmp599604>>) 
-;(l599651 . #<Return: #<Var: tmp599603>>))
-
-
-
-
-;(define (select-instr-atm a)
-;  (match a
-;    [(Int i) (Imm i)]
-;    [(Var _) a]))
-;
-;(define (select-instr-assign v e)
-;  (match e
-;    [(Int i) 
-;     (list (Instr 'movq (list (select-instr-atm e) v)))]
-;    [(Var _)
-;     (list (Instr 'movq (list (select-instr-atm e) v)))]
-;    [(Prim 'read '())
-;     (list (Callq 'read_int)
-;           (Instr 'movq (list (Reg 'rax) v)))]
-;    [(Prim '- (list a))
-;     (list (Instr 'movq (list (select-instr-atm a) v))
-;           (Instr 'negq (list v)))]
-;    [(Prim '+ (list a1 a2))
-;     (list (Instr 'movq (list (select-instr-atm a1) v))
-;           (Instr 'addq (list (select-instr-atm a2) v)))]))
-;
-;(define (select-instr-stmt stmt)
-;  (match stmt
-;    ;; one of the args is the same as the left hand side Var
-;    [(Assign (Var v) (Prim '+ (list (Var v1) a2))) #:when (equal? v v1)
-;     (list (Instr 'addq (list (select-instr-atm a2) (Var v))))]
-;    [(Assign (Var v) (Prim '+ (list a1 (Var v2)))) #:when (equal? v v2)
-;     (list (Instr 'addq (list (select-instr-atm a1) (Var v))))]
-;    [(Assign v e)
-;     (select-instr-assign v e)]))
-;
-;(define (select-instr-tail t)
-;  (match t
-;    [(Seq stmt t*) 
-;     (append (select-instr-stmt stmt) (select-instr-tail t*))]
-;    [(Return (Prim 'read '())) 
-;     (list (Callq 'read_int) (Jmp 'conclusion))]
-;    [(Return e) (append
-;                 (select-instr-assign (Reg 'rax) e)
-;                 (list (Jmp 'conclusion)))]))
-;
-;(define (select-instructions p)
-;  (match p
-;    [(CProgram info (list (cons 'start t)))
-;     (X86Program info
-;       (list (cons 'start (Block '() (select-instr-tail t)))))]))
 
 
 (define (sel-ins-atm c0a)
@@ -1247,85 +472,6 @@
                         (cons (car ls) (Block '() (sel-ins-tail (cdr ls))))))]))
 
 
-;(X86Program
-; '((locals
-;    x1751720
-;    y1751721
-;    tmp1751760
-;    tmp1751761
-;    tmp1751762
-;    tmp1751763
-;    tmp1751764
-;    tmp1751765)
-;   (locals-types
-;    (tmp1751760 . Boolean)
-;    (x1751720 . Integer)
-;    (tmp1751765 . Integer)
-;    (tmp1751763 . Boolean)
-;    (tmp1751764 . Integer)
-;    (tmp1751761 . Boolean)
-;    (y1751721 . Integer)
-;    (tmp1751762 . Boolean)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Callq 'read_int 0)
-;     (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
-;     (Callq 'read_int 0)
-;     (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
-;     (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
-;     (Instr 'set (list 'l (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
-;     (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
-;     (Instr 'set (list 'e (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
-;     (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
-;     (Instr 'set (list 'e (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
-;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
-;     (JmpIf 'e 'l1751807)
-;     (Jmp 'l1751808))))
-;  (cons
-;   'l1751808
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763)))
-;     (Jmp 'l1751806))))
-;  (cons
-;   'l1751807
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763)))
-;     (Jmp 'l1751806))))
-;  (cons
-;   'l1751806
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
-;     (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
-;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
-;     (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
-;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
-;     (JmpIf 'e 'l1751804)
-;     (Jmp 'l1751805))))
-;  (cons
-;   'l1751805
-;   (Block
-;    '()
-;    (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion))))
-;  (cons
-;   'l1751804
-;   (Block
-;    '()
-;    (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion))))))
-
-
 
 
 ;;==============================================================
@@ -1406,64 +552,7 @@
      (Block new-info ss)]
     [else
      (error "R1-reg/uncover-live-block unhandled" ast)]))
-;
-;;; what is args of the uncover-list
-;;; what is the ast
-;;; it is the result of the instruction selection
-;(define (uncover-live ast)
-;  (match ast
-;    [(X86Program info (list (cons 'start block)))
-;     (define new-block (uncover-live-block block (set)))
-;     (X86Program info (list (cons 'start new-block)))]))
 
-;;-----------------------
-
-;(define (uncover-live p)
-;  (match p
-;    [(X86Program info es)
-;     ;; 构造图？
-;     (define cfg-with-edges (isomorph es))
-;     ;; 翻转边
-;     (define cfg-we-tp (transpose cfg-with-edges))
-;     ;; 返回顶点 '(l599652 l599651 l599653 l599655 l599654 start)
-;     (define reverse-top-order (tsort cfg-we-tp))
-;     (X86Program
-;      info
-;      (foldl
-;       (lambda (label cfg)
-;         (begin
-;           ;; 找出block
-;           (define block (cdr (assv label es)))
-;           ;; block中的指令和对应的info
-;           (define-values (instr+ bl-info)
-;             (match block
-;               [(Block bl-info instr+)
-;                (values instr+ bl-info)]))
-;           ;; 比如start的为l599654 和 l599655
-;           (define neighbors (get-neighbors cfg-with-edges label))
-;           ;; 合并跳转block的liveness
-;           (define live-after
-;             (foldr
-;              (lambda (nbr lv-after)
-;                (set-union
-;                 lv-after
-;                 ; the lv-before of its neighbor
-;                 ; TODO this assv is failing? or see above
-;                 (begin
-;                   (match (cdr (assv nbr es));;(assv nbr cfg))
-;                     [(Block bl-info instr+)
-;                      (car bl-info)]))))
-;              '()
-;              (filter (lambda (vtx) (not (eqv? vtx 'conclusion)))
-;                      neighbors)))
-;           (define liveness-blk (liveness instr+ live-after))
-;           (define blonk (Block liveness-blk instr+))
-;           (cons `(,label . ,blonk) cfg)))
-;       '() ;; init 
-;       ; remove conclusion from liveness analysis since we have not
-;       ; created it yet
-;       (filter (lambda (vtx) (not (eqv? vtx 'conclusion)))
-;               reverse-top-order)))]))
 
 ;;--------------------------------
 
@@ -1521,85 +610,6 @@
      (X86Program info (uncover-live-CFG G))]
     ))
 
-
-;(uncover-live
-; (X86Program
-; '((locals
-;    x1751720
-;    y1751721
-;    tmp1751760
-;    tmp1751761
-;    tmp1751762
-;    tmp1751763
-;    tmp1751764
-;    tmp1751765)
-;   (locals-types
-;    (tmp1751760 . Boolean)
-;    (x1751720 . Integer)
-;    (tmp1751765 . Integer)
-;    (tmp1751763 . Boolean)
-;    (tmp1751764 . Integer)
-;    (tmp1751761 . Boolean)
-;    (y1751721 . Integer)
-;    (tmp1751762 . Boolean)))
-; (list
-;  (cons
-;   'start
-;   (Block
-;    '()
-;    (list
-;     (Callq 'read_int 0)
-;     (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
-;     (Callq 'read_int 0)
-;     (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
-;     (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
-;     (Instr 'set (list 'l (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
-;     (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
-;     (Instr 'set (list 'e (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
-;     (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
-;     (Instr 'set (list 'e (Reg 'al)))
-;     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
-;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
-;     (JmpIf 'e 'l1751807)
-;     (Jmp 'l1751808))))
-;  (cons
-;   'l1751808
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763)))
-;     (Jmp 'l1751806))))
-;  (cons
-;   'l1751807
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763)))
-;     (Jmp 'l1751806))))
-;  (cons
-;   'l1751806
-;   (Block
-;    '()
-;    (list
-;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
-;     (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
-;     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
-;     (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
-;     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
-;     (JmpIf 'e 'l1751804)
-;     (Jmp 'l1751805))))
-;  (cons
-;   'l1751805
-;   (Block
-;    '()
-;    (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion))))
-;  (cons
-;   'l1751804
-;   (Block
-;    '()
-;    (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion)))))))
 
 
 
@@ -1673,103 +683,7 @@
      (X86Program new-info new-Blocks)]))
 
 
-(build-interference
- (X86Program
- '((locals x1751720 y1751721 tmp1751760 tmp1751761 tmp1751762 tmp1751763 tmp1751764 tmp1751765)
-   (locals-types
-    (tmp1751760 . Boolean)
-    (x1751720 . Integer)
-    (tmp1751765 . Integer)
-    (tmp1751763 . Boolean)
-    (tmp1751764 . Integer)
-    (tmp1751761 . Boolean)
-    (y1751721 . Integer)
-    (tmp1751762 . Boolean)))
- (list
-  (cons
-   'start
-   (Block
-    (list
-     (list
-      'lives
-      (set 'rax)
-      (set 'rax)
-      (set 'rax 'x1751720)
-      (set 'rax 'x1751720)
-      (set 'y1751721 'x1751720)
-      (set 'y1751721 'x1751720)
-      (set 'al 'y1751721 'x1751720)
-      (set 'tmp1751760 'y1751721 'x1751720)
-      (set 'tmp1751760 'y1751721 'x1751720)
-      (set 'al 'tmp1751760 'y1751721 'x1751720)
-      (set 'tmp1751761 'tmp1751760 'y1751721 'x1751720)
-      (set 'y1751721 'tmp1751761 'tmp1751760)
-      (set 'y1751721 'al 'tmp1751761 'tmp1751760)
-      (set 'y1751721 'tmp1751762 'tmp1751761 'tmp1751760)
-      (set 'y1751721 'tmp1751762 'tmp1751761)
-      (set 'y1751721 'tmp1751762 'tmp1751761)
-      (set 'y1751721 'tmp1751762 'tmp1751761)))
-    (list
-     (Callq 'read_int 0)
-     (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
-     (Callq 'read_int 0)
-     (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
-     (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
-     (Instr 'set (list 'l (Reg 'al)))
-     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
-     (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
-     (Instr 'set (list 'e (Reg 'al)))
-     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
-     (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
-     (Instr 'set (list 'e (Reg 'al)))
-     (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
-     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
-     (JmpIf 'e 'l1751807)
-     (Jmp 'l1751808))))
-  (cons
-   'l1751807
-   (Block
-    (list
-     (list 'lives (set 'y1751721 'tmp1751761) (set 'y1751721 'tmp1751763) (set 'y1751721 'tmp1751763)))
-    (list (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763))) (Jmp 'l1751806))))
-  (cons
-   'l1751804
-   (Block
-    (list (list 'lives (set 'tmp1751764) (set) (set)))
-    (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion))))
-  (cons
-   'l1751806
-   (Block
-    (list
-     (list
-      'lives
-      (set 'y1751721 'tmp1751763)
-      (set 'tmp1751764 'y1751721 'tmp1751763)
-      (set 'tmp1751764 'y1751721 'tmp1751763)
-      (set 'tmp1751763 'tmp1751765 'tmp1751764)
-      (set 'tmp1751763 'tmp1751765 'tmp1751764)
-      (set 'tmp1751765 'tmp1751764)
-      (set 'tmp1751765 'tmp1751764)
-      (set 'tmp1751765 'tmp1751764)))
-    (list
-     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
-     (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
-     (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
-     (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
-     (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
-     (JmpIf 'e 'l1751804)
-     (Jmp 'l1751805))))
-  (cons
-   'l1751808
-   (Block
-    (list
-     (list 'lives (set 'y1751721 'tmp1751762) (set 'y1751721 'tmp1751763) (set 'y1751721 'tmp1751763)))
-    (list (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763))) (Jmp 'l1751806))))
-  (cons
-   'l1751805
-   (Block
-    (list (list 'lives (set 'tmp1751765) (set) (set)))
-    (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion)))))))
+
 
 
 (define interference-test
@@ -2016,104 +930,7 @@
      (X86Program new-info new-Blocks)]))
 
 
-(allocate-registers (build-move-graph
- (build-interference
-  (X86Program
-   '((locals x1751720 y1751721 tmp1751760 tmp1751761 tmp1751762 tmp1751763 tmp1751764 tmp1751765)
-     (locals-types
-      (tmp1751760 . Boolean)
-      (x1751720 . Integer)
-      (tmp1751765 . Integer)
-      (tmp1751763 . Boolean)
-      (tmp1751764 . Integer)
-      (tmp1751761 . Boolean)
-      (y1751721 . Integer)
-      (tmp1751762 . Boolean)))
-   (list
-    (cons
-     'start
-     (Block
-      (list
-       (list
-        'lives
-        (set 'rax)
-        (set 'rax)
-        (set 'rax 'x1751720)
-        (set 'rax 'x1751720)
-        (set 'y1751721 'x1751720)
-        (set 'y1751721 'x1751720)
-        (set 'al 'y1751721 'x1751720)
-        (set 'tmp1751760 'y1751721 'x1751720)
-        (set 'tmp1751760 'y1751721 'x1751720)
-        (set 'al 'tmp1751760 'y1751721 'x1751720)
-        (set 'tmp1751761 'tmp1751760 'y1751721 'x1751720)
-        (set 'y1751721 'tmp1751761 'tmp1751760)
-        (set 'y1751721 'al 'tmp1751761 'tmp1751760)
-        (set 'y1751721 'tmp1751762 'tmp1751761 'tmp1751760)
-        (set 'y1751721 'tmp1751762 'tmp1751761)
-        (set 'y1751721 'tmp1751762 'tmp1751761)
-        (set 'y1751721 'tmp1751762 'tmp1751761)))
-      (list
-       (Callq 'read_int 0)
-       (Instr 'movq (list (Reg 'rax) (Var 'x1751720)))
-       (Callq 'read_int 0)
-       (Instr 'movq (list (Reg 'rax) (Var 'y1751721)))
-       (Instr 'cmpq (list (Imm 10) (Var 'x1751720)))
-       (Instr 'set (list 'l (Reg 'al)))
-       (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751760)))
-       (Instr 'cmpq (list (Imm 0) (Var 'x1751720)))
-       (Instr 'set (list 'e (Reg 'al)))
-       (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751761)))
-       (Instr 'cmpq (list (Imm 20) (Var 'x1751720)))
-       (Instr 'set (list 'e (Reg 'al)))
-       (Instr 'movzbq (list (Reg 'al) (Var 'tmp1751762)))
-       (Instr 'cmpq (list (Imm 1) (Var 'tmp1751760)))
-       (JmpIf 'e 'l1751807)
-       (Jmp 'l1751808))))
-    (cons
-     'l1751807
-     (Block
-      (list
-       (list 'lives (set 'y1751721 'tmp1751761) (set 'y1751721 'tmp1751763) (set 'y1751721 'tmp1751763)))
-      (list (Instr 'movq (list (Var 'tmp1751761) (Var 'tmp1751763))) (Jmp 'l1751806))))
-    (cons
-     'l1751804
-     (Block
-      (list (list 'lives (set 'tmp1751764) (set) (set)))
-      (list (Instr 'movq (list (Var 'tmp1751764) (Reg 'rax))) (Jmp 'conclusion))))
-    (cons
-     'l1751806
-     (Block
-      (list
-       (list
-        'lives
-        (set 'y1751721 'tmp1751763)
-        (set 'tmp1751764 'y1751721 'tmp1751763)
-        (set 'tmp1751764 'y1751721 'tmp1751763)
-        (set 'tmp1751763 'tmp1751765 'tmp1751764)
-        (set 'tmp1751763 'tmp1751765 'tmp1751764)
-        (set 'tmp1751765 'tmp1751764)
-        (set 'tmp1751765 'tmp1751764)
-        (set 'tmp1751765 'tmp1751764)))
-      (list
-       (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751764)))
-       (Instr 'addq (list (Imm 2) (Var 'tmp1751764)))
-       (Instr 'movq (list (Var 'y1751721) (Var 'tmp1751765)))
-       (Instr 'addq (list (Imm 10) (Var 'tmp1751765)))
-       (Instr 'cmpq (list (Imm 1) (Var 'tmp1751763)))
-       (JmpIf 'e 'l1751804)
-       (Jmp 'l1751805))))
-    (cons
-     'l1751808
-     (Block
-      (list
-       (list 'lives (set 'y1751721 'tmp1751762) (set 'y1751721 'tmp1751763) (set 'y1751721 'tmp1751763)))
-      (list (Instr 'movq (list (Var 'tmp1751762) (Var 'tmp1751763))) (Jmp 'l1751806))))
-    (cons
-     'l1751805
-     (Block
-      (list (list 'lives (set 'tmp1751765) (set) (set)))
-      (list (Instr 'movq (list (Var 'tmp1751765) (Reg 'rax))) (Jmp 'conclusion)))))))))
+
 
 ;; ------
 
@@ -2129,6 +946,7 @@
                                         (< (edge-weight cfg target curr-block) 2))
                             (begin
                               (set-add! removed-blocks target)
+                              ;; 将指令组合在一起
                               (append
                                (fix-block (Block-instr* (dict-ref all-blocks target)) cfg removed-blocks all-blocks curr-block)
                                (fix-block (cdr instrs) cfg removed-blocks all-blocks curr-block)))]
@@ -2198,45 +1016,7 @@
      (Block info (for/list ([e es]) (assign-homes-instr e ls)))]
     ))
 
-;(define (assign-homes p)
-;  (match p
-;    ;; The locals-types entry is an alist mapping all the variables in
-;    ;; the program to their types (for now, just Integer).
-;    ;; the locals-types entry is computed by type-check-Cvar in the support code,
-;    [(X86Program info (list (cons 'start es)))
-;     ;;(printf "info is ===== ~a \n" (cdr (car info)))
-;     (X86Program (list (cons 'stack-space (calc-stack-space (cdr (car info)))))
-;       (list (cons 'start (assign-homes-block es (car info)))))]))
 
-
-;; assign-homes : pseudo-x86 -> pseudo-x86
-;(define (assign-homes p)
-;  (error "TODO: code goes here (assign-homes)"))
-
-;; ----------
-
-;(define (patch-instr instruction)
-;  (match instruction
-;    [(Instr op (list (Deref reg off) (Deref reg2 off2)))
-;     (list (Instr 'movq (list (Deref reg off) (Reg 'rax)))
-;           (Instr op (list (Reg 'rax) (Deref reg2 off2))))]
-;    [else (list instruction)]))
-;    ;;[else instruction]))
-;
-;;; append-map
-;;; (append* (map proc lst ...))
-;;; for each list execute proc, then append all the lists
-;(define (patch-block b)
-;  (match b
-;    [(Block '() instrs)
-;     (Block '() (append-map patch-instr instrs))]))
-;
-;(define (patch-instructions p)
-;   (match p
-;    [(X86Program info B-list)
-;     (X86Program info (map
-;                       (lambda (x) `(,(car x) . ,(patch-block (cdr x))))
-;                       B-list))]))
 ;;-----
 
 (define (patch-instructions-instrs instr)

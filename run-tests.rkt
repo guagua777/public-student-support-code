@@ -5,8 +5,12 @@
 (require "interp-Lvar.rkt")
 (require "interp-Cvar.rkt")
 (require "interp-Lif.rkt")
+(require "interp-Cif.rkt")
+(require "interp-Lwhile.rkt")
+(require "interp-Cwhile.rkt")
 (require "interp.rkt")
 (require "type-check-Lif.rkt")
+(require "type-check-Lwhile.rkt")
 (require "compiler.rkt")
 (debug-level 1)
 ;;(AST-output-syntax 'concrete-syntax)
@@ -29,7 +33,10 @@
 ;;(interp-tests "var" #f compiler-passes interp-Lvar "var_test" (tests-for "var"))
 
 ;(interp-tests "if" type-check-Lif '() interp-Lif "cond_test" (tests-for "cond"))
-(interp-tests "if" type-check-Lif compiler-passes interp-Lif "cond_test" (tests-for "cond"))
+;(interp-tests "if" type-check-Lif compiler-passes interp-Lif "cond_test" (tests-for "cond"))
+
+(interp-tests "while" type-check-Lwhile '() interp-Lwhile "while_test" (tests-for "while"))
+;(interp-tests "while" type-check-Lwhile compiler-passes interp-Lwhile "while_test" (tests-for "while"))
 
 
 ;; Uncomment the following when all the passes are complete to

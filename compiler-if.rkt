@@ -2129,6 +2129,7 @@
                                         (< (edge-weight cfg target curr-block) 2))
                             (begin
                               (set-add! removed-blocks target)
+                              ;; 将指令组合在一起
                               (append
                                (fix-block (Block-instr* (dict-ref all-blocks target)) cfg removed-blocks all-blocks curr-block)
                                (fix-block (cdr instrs) cfg removed-blocks all-blocks curr-block)))]
