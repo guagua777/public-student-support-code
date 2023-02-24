@@ -13,7 +13,7 @@
 (require "type-check-Lwhile.rkt")
 (require "compiler.rkt")
 (debug-level 1)
-;;(AST-output-syntax 'concrete-syntax)
+(AST-output-syntax 'concrete-syntax)
 
 ;; all the files in the tests/ directory with extension ".rkt".
 (define all-tests
@@ -35,8 +35,8 @@
 ;(interp-tests "if" type-check-Lif '() interp-Lif "cond_test" (tests-for "cond"))
 ;(interp-tests "if" type-check-Lif compiler-passes interp-Lif "cond_test" (tests-for "cond"))
 
-(interp-tests "while" type-check-Lwhile '() interp-Lwhile "while_test" (tests-for "while"))
-;(interp-tests "while" type-check-Lwhile compiler-passes interp-Lwhile "while_test" (tests-for "while"))
+;(interp-tests "while" type-check-Lwhile '() interp-Lwhile "while_test" (tests-for "while"))
+(interp-tests "while" type-check-Lwhile compiler-passes interp-Lwhile "while_test" (tests-for "while"))
 
 
 ;; Uncomment the following when all the passes are complete to

@@ -8,10 +8,14 @@
 (require "interp-Cvar.rkt")
 (require "interp-Lif.rkt")
 (require "interp-Cif.rkt")
+(require "interp-Lwhile.rkt")
+(require "interp-Cwhile.rkt")
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "type-check-Lif.rkt")
 (require "type-check-Cif.rkt")
+(require "type-check-Lwhile.rkt")
+(require "type-check-Cwhile.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
@@ -72,6 +76,13 @@
        (Var (dict-ref env x))]
       [(Int n) (Int n)]
       [(Bool b) (Bool b)]
+      [(SetBang x rhs)
+       (SetBang (dict-ref env x) ((uniquify-exp env) rhs))]
+      [(Begin es body)
+       (Begin (for/list ([e es]) ((uniquify-exp env) e))
+              ((uniquify-exp env) body))]
+      [(WhileLoop cnd body)
+       (WhileLoop ((uniquify-exp env) cnd) ((uniquify-exp env) body))]
       [(Let x e body)
        (let* ([new-sym (gensym x)]
               [new-env (dict-set env x new-sym)])
@@ -112,30 +123,154 @@
        (Program info (shrink-exp e))])))
 
 
+;We mark each read from a mutable variable with the form get! (GetBang in abstract syntax)
+
+(define (collect-set! e)
+  (match e
+    [(Var x) (set)]
+    [(Int n) (set)]
+    [(Let x rhs body)
+     (set-union (collect-set! rhs) (collect-set! body))]
+    [(SetBang var rhs)
+     (set-union (set var) (collect-set! rhs))]
+    [(Prim 'read '()) (set)]
+    [(Prim op es)
+     (for/fold ([r (set)]) ([e es]) (set-union r (collect-set! e)))]
+    [(If cnd thn els)
+     (set-union (collect-set! cnd) (collect-set! thn) (collect-set! els))]
+    [(Begin es body)
+     (define es-set
+       (for/fold ([r (set)]) ([e es]) (set-union r (collect-set! e))))
+     (set-union es-set (collect-set! body))]
+    [(WhileLoop cnd body)
+     (set-union (collect-set! cnd) (collect-set! body))]))
+
+;(collect-set!
+; (Let
+;  'sum
+;  (Int 0)
+;  (Let
+;   'i
+;   (Int 5)
+;   (Begin
+;    (list
+;     (WhileLoop
+;      (Prim '> (list (Var 'i) (Int 0)))
+;      (Begin
+;       (list (SetBang 'sum (Prim '+ (list (Var 'sum) (Var 'i)))))
+;       (SetBang 'i (Prim '- (list (Var 'i) (Int 1)))))))
+;    (Var 'sum)))))
+
+;; for 返回值为void
+;; for/list 返回值为list
+;; for/lists 返回多个list
+;; for/fold 返回值为收集的结果
+
+(define ((uncover-get!-exp set!-vars) e)
+  (match e
+    [(Var x)
+     (if (set-member? set!-vars x)
+         (GetBang x)
+         (Var x))]
+    [(Int n) (Int n)]
+    [(Let x rhs body)
+     (Let x ((uncover-get!-exp set!-vars) rhs) ((uncover-get!-exp set!-vars) body))]
+    [(SetBang var rhs)
+     (SetBang var ((uncover-get!-exp set!-vars) rhs))]
+    [(Prim 'read '()) (Prim 'read '())]
+    [(Prim op es)
+     (Prim op (for/list ([e es]) ((uncover-get!-exp set!-vars) e)))]
+    [(If cnd thn els)
+     (If ((uncover-get!-exp set!-vars) cnd)
+         ((uncover-get!-exp set!-vars) thn)
+         ((uncover-get!-exp set!-vars) els))]
+    [(Begin es body)
+     (Begin
+      (for/list ([e es]) ((uncover-get!-exp set!-vars) e))
+      ((uncover-get!-exp set!-vars) body))]
+    [(WhileLoop cnd body)
+     (WhileLoop ((uncover-get!-exp set!-vars) cnd)
+                ((uncover-get!-exp set!-vars) body))]))
+
+(define uncover-get!
+  (lambda (exp)
+    (match exp
+      [(Program info e)
+       (define set-coll (collect-set! e))
+       (Program info ((uncover-get!-exp set-coll) e))])))    
+
+;((uncover-get! collect-set! uncover-get!-exp)
+;    (Let
+;  'sum
+;  (Int 0)
+;  (Let
+;   'i
+;   (Int 5)
+;   (Begin
+;    (list
+;     (WhileLoop
+;      (Prim '> (list (Var 'i) (Int 0)))
+;      (Begin
+;       (list (SetBang 'sum (Prim '+ (list (Var 'sum) (Var 'i)))))
+;       (SetBang 'i (Prim '- (list (Var 'i) (Int 1)))))))
+;    (Var 'sum)))))
+
+
 (define (remove-complex-opera* p)
     (match p
       [(Program info e)
        (Program info (rco-exp e))]))
 
+;(+ 5 (- 10)) 为 (+ atm exp),需要变换为 (+ atm atm) 的形式
+;(+ 5 tmp1) 但是不能把(- 10)给丢了,需要将其保存起来,且tmp1代表(- 10)
 (define (rco-atom e)
   (match e
     [(Var x) (values (Var x) '())]
     [(Int n) (values (Int n) '())]
     [(Bool b) (values (Bool b) '())]
-    [(Let x rhs body)
+    [(GetBang x)
+     ;; 生成临时变量
+     (define tmp (gensym 'tmp))
+     (values (Var tmp) (list (cons tmp (Var x))))]
+    [(SetBang x rhs)
+     ;(printf "set bang e is ~a \n" e)
+     (define-values (rhs^ rhs-v) (rco-atom rhs))
+     ;(printf "set bang rhs-v is ~a \n" rhs-v)
+     ;(define rhs^ (rco-exp rhs))
+     ;(values (SetBang x rhs^) rhs-v)]
+     (define tmp (gensym 'tmp))
+     ;(define rhs-v-list (append* rhs-v))
+     (values (Var tmp)
+             (append rhs-v (list (cons tmp (SetBang x rhs^)))))]
+    [(Begin es body)
+     (define-values (new-es sss) (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
+     (define-values (new-body body-ss) (rco-atom body))
+     ;;(values (Begin new-es new-body) (append (append* sss) body-ss))]
+     (define tmp (gensym 'tmp))
+     (define one-list-new-es (append* sss))
+     (values (Var tmp) (append (append one-list-new-es body-ss) (list (cons tmp (Begin new-es new-body)))))]
+    [(WhileLoop cnd body)
+     (define-values (new-cnd cnd-var) (rco-atom cnd))
+     (define-values (new-body body-var) (rco-atom body))
+     ;; (values (While new-cnd new-body) (append cnd-var body-var))
+     ;; 因为while是复杂表达式，所以需要生成临时变量
+     (define tmp (gensym 'tmp))
+     (define cnd-body-var (append cnd-var body-var))
+     (values (Var tmp) (append cnd-body-var (list (cons tmp (WhileLoop new-cnd new-body)))))]
+    [(Let x rhs body) ;; let的rhs可能是begin等
      (define new-rhs (rco-exp rhs))
      (define-values (new-body body-ss) (rco-atom body))
      (values new-body (append `((,x . ,new-rhs)) body-ss))]
     [(Prim op es) 
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+       (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
      (define ss (append* sss))
      (define tmp (gensym 'tmp))
      (values (Var tmp)
              (append ss `((,tmp . ,(Prim op new-es)))))]
     [(If e1 e2 e3)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
+       (for/lists (l1 l2) ([e^ (list e1 e2 e3)]) (rco-atom e^)))
      (define ss (append* sss))
      (define tmp (gensym 'tmp))
      (match new-es
@@ -155,20 +290,81 @@
     [(Var x) (Var x)]
     [(Int n) (Int n)]
     [(Bool b) (Bool b)]
+    [(GetBang x)
+     ;(rco-atom e)]
+     (define-values (new-e sss) (rco-atom e))
+     (make-lets^ (append* sss) new-e)]
+    [(SetBang x rhs)
+     ;(rco-atom e)]
+     (define-values (new-rhs sss) (rco-atom rhs))
+     (make-lets^ (append* sss) (SetBang x new-rhs))]
+    [(Begin es body)
+     ;(rco-atom e)]
+     (define-values (new-es sss)
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+     (define-values (new-body body-var) (rco-atom body))
+     ;(printf "begin append* sss is ~a \n body is ~a \n new-es is ~a \n" (append* sss) body-var new-es)
+     ;(make-lets^ (append (append* sss) body-var) (Begin (append* new-es) new-body))]
+     (make-lets^ (append (append* sss) body-var) (Begin new-es new-body))]
+    [(WhileLoop cnd body)
+     ;(rco-atom e)]
+     (define-values (new-cnd cnd-var) (rco-atom cnd))
+     (define-values (new-body body-var) (rco-atom body))
+     (define cnd-body-var (append cnd-var body-var))
+     (make-lets^ cnd-body-var (WhileLoop new-cnd new-body))]
     [(Let x rhs body)
+     ;(printf "let body is ~a \n" (rco-exp body))
      (Let x (rco-exp rhs) (rco-exp body))]
     [(Prim op es)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+       (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
      (make-lets^ (append* sss) (Prim op new-es))]
     [(If e1 e2 e3)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
+       (for/lists (l1 l2) ([e^ (list e1 e2 e3)]) (rco-atom e^)))
      (match new-es
 	    [(list e1 e2 e3)
 	     (make-lets^ (append* sss) (If e1 e2 e3))])]
     ))
 
+;(remove-complex-opera*
+;(Program
+; '()
+; (Let
+;  'sum5632684
+;  (Int 0)
+;  (Let
+;   'i5632685
+;   (Int 5)
+;   (Begin
+;    (list
+;     (WhileLoop
+;      (Prim '> (list (GetBang 'i5632685) (Int 0)))
+;      (Begin
+;       (list
+;        (SetBang 'sum5632684 (Prim '+ (list (GetBang 'sum5632684) (GetBang 'i5632685)))))
+;       (SetBang 'i5632685 (Prim '- (list (GetBang 'i5632685) (Int 1)))))))
+;    (GetBang 'sum5632684))))))
+
+;(Program
+; '()
+; (Let
+;  'sum5329461
+;  (Int 0)
+;  (Let
+;   'i5329462
+;   (Int 5)
+;   (Begin
+;    (list
+;     (WhileLoop
+;      (Prim '> (list (GetBang 'i5329462) (Int 0)))
+;      (Begin
+;       (list
+;        (SetBang
+;         'sum5329461
+;         (Prim '+ (list (GetBang 'sum5329461) (GetBang 'i5329462)))))
+;       (SetBang 'i5329462 (Prim '- (list (GetBang 'i5329462) (Int 1)))))))
+;    (GetBang 'sum5329461)))))
 
 
 
@@ -1086,13 +1282,14 @@
 ;; Note that your compiler file (the file that defines the passes)
 ;; must be named "compiler.rkt"
 (define compiler-passes
-  `( ("shrink" ,shrink ,interp-Lif ,type-check-Lif)
-     ("uniquify" ,uniquify ,interp-Lif ,type-check-Lif)
+  `( ("shrink" ,shrink ,interp-Lwhile ,type-check-Lwhile)
+     ("uniquify" ,uniquify ,interp-Lwhile ,type-check-Lwhile)
+     ("uncover-get!" ,uncover-get! ,interp-Lwhile ,type-check-Lwhile)
      ;; Uncomment the following passes as you finish them.
-     ("remove complex opera*" ,remove-complex-opera* ,interp-Lif ,type-check-Lif)
-     ("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
-     ("optimize jumps" ,optimize-jumps ,interp-Cif ,type-check-Cif)
-     ("instruction selection" ,select-instructions ,interp-x86-1)
+     ("remove complex opera*" ,remove-complex-opera* ,interp-Lwhile ,type-check-Lwhile)
+     ;;("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
+     ;;("optimize jumps" ,optimize-jumps ,interp-Cif ,type-check-Cif)
+     ;;("instruction selection" ,select-instructions ,interp-x86-1)
      ;;("assign homes" ,assign-homes ,interp-x86-0)
      ;;("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
