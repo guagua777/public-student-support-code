@@ -32,9 +32,11 @@
            (unless (<= (length es) 50)
              (error 'type-check "vector too large ~a, max is 50" (length es)))
            (define-values (e* t*) (for/lists (e* t*) ([e es]) (recur e)))
+           ;(printf "e* is ~a \n t* is ~a \n" e* t*)
            (define t `(Vector ,@t*))
            (values (HasType (Prim 'vector e*) t)  t)]
           [(Prim 'vector-ref (list e1 (Int i)))
+           ;; 获取vector的类型
            (define-values (e1^ t) (recur e1))
            (match t
              [`(Vector ,ts ...)
@@ -83,6 +85,25 @@
 
 (define (type-check-Lvec p)
   (send (new type-check-Lvec-class) type-check-program p))
+
+;(type-check-Lvec
+;   (Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;  (Int 42))))
+
+; (type-check-Lvec (Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 20) (Int 22))) '(Vector Integer Integer))
+;  (Prim
+;   '+
+;   (list
+;    (Prim 'vector-ref (list (Var 'v) (Int 0)))
+;    (Prim 'vector-ref (list (Var 'v) (Int 1))))))))
 
 #;(define (type-check-exp env)
   (send (new type-check-Lvec-class) type-check-exp env))

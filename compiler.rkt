@@ -68,6 +68,18 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+;To create the s-expression for the Vector type,
+;we use the unquote-splicing operator ,@ to insert the list t* without its usual start and end parentheses.
+
+
+;(Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;  (Int 42)))
+
 ;; 想一想环境中保存的是什么
 (define (uniquify-exp env)
   (lambda (e)
@@ -464,11 +476,11 @@
     ))
 
 ;; 添加副作用 position
-(define (explicate-effect e tail)
-  (match e
-    [(WhileLoop cnd body)
-     (define loop
-     (Goto 
+;(define (explicate-effect e tail)
+;  (match e
+;    [(WhileLoop cnd body)
+;     (define loop
+;     (Goto 
 
 
 
