@@ -119,6 +119,8 @@
               ((uniquify-exp env) body))]
       [(WhileLoop cnd body)
        (WhileLoop ((uniquify-exp env) cnd) ((uniquify-exp env) body))]
+      [(HasType e type)
+       (HasType ((uniquify-exp env) e) type)]
       [(Let x e body)
        (let* ([new-sym (gensym x)]
               [new-env (dict-set env x new-sym)])
@@ -134,7 +136,15 @@
     [(Program info e)
      (Program info ((uniquify-exp '()) e))]))
 
-;; --------------
+;(uniquify
+;(Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;  (Int 42))))
+
+;; ------------------------------------------------------------
 
 (define shrink-exp
   (lambda (e)
@@ -160,7 +170,7 @@
       [(Program info e)
        (Program info (shrink-exp e))])))
 
-;;-------------
+;;--------------------------------------------------------------------------------------
 
 ;; 将exp的具体信息显现expose出来
 ;; type check 之后 会变成(HasType e type)的类型
@@ -337,6 +347,11 @@
                                        vars type)
                                       type)
                          type))]
+    [(Let x v body)
+     (Let x (expose-exp v) (expose-exp body))]
+    [(Int n) (Int n)]
+    [(Var x) (Var x)]
+    [(Bool b) (Bool b)]
     [else e]))
                  
 (define (generate-n-vars n)
@@ -344,6 +359,7 @@
       '()
       (cons (gensym 'tmp) (generate-n-vars (sub1 n)))))
 
+;; base改为continuation更合适
 (define (expend-into-lets vars exps base base-type)
   (if (empty? exps)
       ;; 嵌入到其中的部分
@@ -353,6 +369,7 @@
                     (expend-into-lets (cdr vars) (cdr exps) base base-type))
                base-type)))
 
+;; base改为continuation更合适
 (define (do-allocate vect len bytes base type)
   (Let '_ (If (Prim '< (list (Prim '+ (list (GlobalValue 'free_ptr) (Int bytes)))
                              (GlobalValue 'fromspace_end)))
@@ -363,6 +380,7 @@
             ;; 嵌入其中的let-set
             base)))
 
+;; vect为continuation
 (define (bulk-vector-set vect vars type)
   (expend-into-lets (duplicate '_ (length vars)) (make-vector-set-exps vect 0 vars)
                     ;; base 嵌入到let-set中的部分,也就是最终的值
@@ -380,7 +398,21 @@
             (make-vector-set-exps vect (add1 accum) (cdr vars)))))
 
 
-;;-------------
+(define (expose-p p)
+  (match p
+    [(Program info e)
+     (Program info (expose-exp e))]))
+
+;(expose-p
+; (uniquify
+;  (Program
+;   '()
+;   (Let
+;    'v
+;    (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;    (Int 42)))))
+
+;;----------------------------------------------------------
 
 ;We mark each read from a mutable variable with the form get! (GetBang in abstract syntax)
 
@@ -404,21 +436,6 @@
     [(WhileLoop cnd body)
      (set-union (collect-set! cnd) (collect-set! body))]))
 
-;(collect-set!
-; (Let
-;  'sum
-;  (Int 0)
-;  (Let
-;   'i
-;   (Int 5)
-;   (Begin
-;    (list
-;     (WhileLoop
-;      (Prim '> (list (Var 'i) (Int 0)))
-;      (Begin
-;       (list (SetBang 'sum (Prim '+ (list (Var 'sum) (Var 'i)))))
-;       (SetBang 'i (Prim '- (list (Var 'i) (Int 1)))))))
-;    (Var 'sum)))))
 
 ;; for 返回值为void
 ;; for/list 返回值为list
@@ -458,84 +475,53 @@
        (define set-coll (collect-set! e))
        (Program info ((uncover-get!-exp set-coll) e))])))    
 
-;((uncover-get! collect-set! uncover-get!-exp)
-;    (Let
-;  'sum
-;  (Int 0)
-;  (Let
-;   'i
-;   (Int 5)
-;   (Begin
-;    (list
-;     (WhileLoop
-;      (Prim '> (list (Var 'i) (Int 0)))
-;      (Begin
-;       (list (SetBang 'sum (Prim '+ (list (Var 'sum) (Var 'i)))))
-;       (SetBang 'i (Prim '- (list (Var 'i) (Int 1)))))))
-;    (Var 'sum)))))
-
+;;----------------------------------------------------------------
 
 (define (remove-complex-opera* p)
     (match p
       [(Program info e)
        (Program info (rco-exp e))]))
 
-;(+ 5 (- 10)) 为 (+ atm exp),需要变换为 (+ atm atm) 的形式
-;(+ 5 tmp1) 但是不能把(- 10)给丢了,需要将其保存起来,且tmp1代表(- 10)
 (define (rco-atom e)
+  ;(printf "e is ===== ~a \n" e)
   (match e
     [(Var x) (values (Var x) '())]
     [(Int n) (values (Int n) '())]
     [(Bool b) (values (Bool b) '())]
-    [(GetBang x)
-     ;; 生成临时变量
+    [(HasType e^ type)
+     (define new-e (rco-exp e^))
+     (values (HasType new-e type) '())]
+    [(GlobalValue x)
      (define tmp (gensym 'tmp))
-     (values (Var tmp) (list (cons tmp (Var x))))]
-    [(SetBang x rhs)
-     ;(printf "set bang e is ~a \n" e)
-     (define-values (rhs^ rhs-v) (rco-atom rhs))
-     ;(printf "set bang rhs-v is ~a \n" rhs-v)
-     ;(define rhs^ (rco-exp rhs))
-     ;(values (SetBang x rhs^) rhs-v)]
+     (values (Var tmp) (list (cons tmp (GlobalValue x))))]
+    [(Collect n) ;`(collect ,n)
      (define tmp (gensym 'tmp))
-     ;(define rhs-v-list (append* rhs-v))
-     (values (Var tmp)
-             (append rhs-v (list (cons tmp (SetBang x rhs^)))))]
-    [(Begin es body)
-     (define-values (new-es sss) (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
-     (define-values (new-body body-ss) (rco-atom body))
-     ;;(values (Begin new-es new-body) (append (append* sss) body-ss))]
+     (values (Var tmp) (list (cons tmp (Collect n))))]
+    [(Allocate amount type) ;`(allocate ,n ,type)
      (define tmp (gensym 'tmp))
-     (define one-list-new-es (append* sss))
-     (values (Var tmp) (append (append one-list-new-es body-ss) (list (cons tmp (Begin new-es new-body)))))]
-    [(WhileLoop cnd body)
-     (define-values (new-cnd cnd-var) (rco-atom cnd))
-     (define-values (new-body body-var) (rco-atom body))
-     ;; (values (While new-cnd new-body) (append cnd-var body-var))
-     ;; 因为while是复杂表达式，所以需要生成临时变量
-     (define tmp (gensym 'tmp))
-     (define cnd-body-var (append cnd-var body-var))
-     (values (Var tmp) (append cnd-body-var (list (cons tmp (WhileLoop new-cnd new-body)))))]
-    [(Let x rhs body) ;; let的rhs可能是begin等
+     (values (Var tmp) (list (cons tmp (Allocate amount type))))]
+    [(Let x rhs body)
      (define new-rhs (rco-exp rhs))
      (define-values (new-body body-ss) (rco-atom body))
      (values new-body (append `((,x . ,new-rhs)) body-ss))]
     [(Prim op es) 
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
      (define ss (append* sss))
      (define tmp (gensym 'tmp))
      (values (Var tmp)
              (append ss `((,tmp . ,(Prim op new-es)))))]
     [(If e1 e2 e3)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e^ (list e1 e2 e3)]) (rco-atom e^)))
+       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
      (define ss (append* sss))
      (define tmp (gensym 'tmp))
      (match new-es
 	    [(list e1 e2 e3)
 	     (values (Var tmp)
              (append ss `((,tmp . ,(If e1 e2 e3)))))])]
+    [(Void)
+     (values (Void) '())]
     ))
 
 (define (make-lets^ bs e)
@@ -545,87 +531,45 @@
      (Let x e^ (make-lets^ bs^ e))]))
 
 (define (rco-exp e)
+  ;(printf "exp is =======  ~a \n" e)
   (match e
     [(Var x) (Var x)]
     [(Int n) (Int n)]
     [(Bool b) (Bool b)]
-    [(GetBang x)
-     ;(rco-atom e)]
-     (define-values (new-e sss) (rco-atom e))
-     (make-lets^ (append* sss) new-e)]
-    [(SetBang x rhs)
-     ;(rco-atom e)]
-     (define-values (new-rhs sss) (rco-atom rhs))
-     (make-lets^ (append* sss) (SetBang x new-rhs))]
-    [(Begin es body)
-     ;(rco-atom e)]
-     (define-values (new-es sss)
-       (for/lists (l1 l2) ([e es]) (rco-atom e)))
-     (define-values (new-body body-var) (rco-atom body))
-     ;(printf "begin append* sss is ~a \n body is ~a \n new-es is ~a \n" (append* sss) body-var new-es)
-     ;(make-lets^ (append (append* sss) body-var) (Begin (append* new-es) new-body))]
-     (make-lets^ (append (append* sss) body-var) (Begin new-es new-body))]
-    [(WhileLoop cnd body)
-     ;(rco-atom e)]
-     (define-values (new-cnd cnd-var) (rco-atom cnd))
-     (define-values (new-body body-var) (rco-atom body))
-     (define cnd-body-var (append cnd-var body-var))
-     (make-lets^ cnd-body-var (WhileLoop new-cnd new-body))]
     [(Let x rhs body)
-     ;(printf "let body is ~a \n" (rco-exp body))
      (Let x (rco-exp rhs) (rco-exp body))]
     [(Prim op es)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e^ es]) (rco-atom e^)))
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
      (make-lets^ (append* sss) (Prim op new-es))]
     [(If e1 e2 e3)
      (define-values (new-es sss)
-       (for/lists (l1 l2) ([e^ (list e1 e2 e3)]) (rco-atom e^)))
+       (for/lists (l1 l2) ([e (list e1 e2 e3)]) (rco-atom e)))
      (match new-es
 	    [(list e1 e2 e3)
 	     (make-lets^ (append* sss) (If e1 e2 e3))])]
+    [(HasType e^ type)
+     (HasType (rco-exp e^) type)]
+    [(Void) (Void)]
+    [(Allocate amount type)
+     e] 
     ))
 
+
+;(+ 5 (- 10)) 为 (+ atm exp),需要变换为 (+ atm atm) 的形式
+;(+ 5 tmp1) 但是不能把(- 10)给丢了,需要将其保存起来,且tmp1代表(- 10)
 ;(remove-complex-opera*
-;(Program
-; '()
-; (Let
-;  'sum5632684
-;  (Int 0)
-;  (Let
-;   'i5632685
-;   (Int 5)
-;   (Begin
-;    (list
-;     (WhileLoop
-;      (Prim '> (list (GetBang 'i5632685) (Int 0)))
-;      (Begin
-;       (list
-;        (SetBang 'sum5632684 (Prim '+ (list (GetBang 'sum5632684) (GetBang 'i5632685)))))
-;       (SetBang 'i5632685 (Prim '- (list (GetBang 'i5632685) (Int 1)))))))
-;    (GetBang 'sum5632684))))))
-
-;(Program
-; '()
-; (Let
-;  'sum5329461
-;  (Int 0)
-;  (Let
-;   'i5329462
-;   (Int 5)
-;   (Begin
-;    (list
-;     (WhileLoop
-;      (Prim '> (list (GetBang 'i5329462) (Int 0)))
-;      (Begin
-;       (list
-;        (SetBang
-;         'sum5329461
-;         (Prim '+ (list (GetBang 'sum5329461) (GetBang 'i5329462)))))
-;       (SetBang 'i5329462 (Prim '- (list (GetBang 'i5329462) (Int 1)))))))
-;    (GetBang 'sum5329461)))))
+; (expose-p
+;  (uniquify
+;   (Program
+;    '()
+;    (Let
+;     'v
+;     (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;     (Int 42))))))
 
 
+;; ------------------------------------------------------------------------
 
 ;; explicate-control 思路
 
@@ -639,7 +583,7 @@
        (set! basic-blocks (cons (cons label tail) basic-blocks))
        (Goto label))]))
 
-;;----------------------
+;;------------
 (define Explicate-CFG '())
 
 (define (add-to-cfg t)
@@ -662,7 +606,12 @@
                    [(els-tail vars2) (explicate-tail els)])
      (let-values ([(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
        ;; (values cnd-tail (append vars3 vars1 vars2))))]))
-       (values cnd-tail (append vars1 vars2 vars3))))]))
+       (values cnd-tail (append vars1 vars2 vars3))))]
+    [(HasType e type)
+     ...]
+    [(GlobalValue ...)]
+    [(Collect ...)]
+    ))
 
 (define (explicate-assign exp var tail)
   (match exp
@@ -730,18 +679,93 @@
 ;     (Goto 
 
 
-
+;; 参考Ctup
+;; 新添加的stmt变成Seq中的一部分
+;; 新添加的exp变成Assign中的一部分
 (define (explicate-control p)
   (set! Explicate-CFG '())
   (match p
     [(Program info e)
      (let-values ([(tail vars) (explicate-tail e)])
        (CProgram
-        (list (cons 'locals vars))
+        (cons (cons 'locals vars) info)
         (cons (cons 'start tail) Explicate-CFG)))]
     ))
 
-;;---------
+;(Program
+; '()
+; (Let
+;  'v264225
+;  (HasType
+;   (Let
+;    'tmp264227
+;    (Int 1)
+;    (HasType
+;     (Let
+;      'tmp264228
+;      (Int 2)
+;      (Let
+;       '_
+;       (If
+;        (Prim
+;         '<
+;         (list
+;          (Prim '+ (list (GlobalValue 'free_ptr) (Int 16)))
+;          (GlobalValue 'fromspace_end)))
+;        (Void)
+;        (collect 16))
+;       (Let
+;        'vec264226
+;        (allocate 2 (Vector Integer Integer))
+;        (HasType
+;         (Let
+;          '_
+;          (Prim
+;           'vector-set!
+;           (list
+;            (HasType (Var 'vec264226) '(Vector Integer Integer))
+;            (Int 0)
+;            (Var 'tmp264227)))
+;          (HasType
+;           (Let
+;            '_
+;            (Prim
+;             'vector-set!
+;             (list
+;              (HasType (Var 'vec264226) '(Vector Integer Integer))
+;              (Int 1)
+;              (Var 'tmp264228)))
+;            (HasType (Var 'vec264226) '(Vector Integer Integer)))
+;           '(Vector Integer Integer)))
+;         '(Vector Integer Integer)))))
+;     '(Vector Integer Integer)))
+;   '(Vector Integer Integer))
+;  (Int 42)))
+
+;;------------------------------------------------------------------------
+(define (uncover-block tail)
+  (match tail
+    [(Seq (Assign var (HasType x type)) t)
+     (cons `(,var . ,type) (uncover-block t))]
+    [x '()]))
+
+(define (uncover-locals p)
+  (match p
+    [(Program info B-list)
+     (let ([locals (remove-duplicates
+                     (append-map (lambda (x) 
+                                    (uncover-block (cdr x))) B-list))])
+       (Program `((locals . ,locals)) B-list))]))
+
+
+;(Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;  (Int 42)))
+
+;;--------------------------------------------------------------
 
 (define (analyze-dataflow G transfer bottom join)
   (define mapping (make-hash))
@@ -934,7 +958,8 @@
      (X86Program info (for/list ([ls es])
                         (cons (car ls) (Block '() (sel-ins-tail (cdr ls))))))]))
 
-
+;; We then initialize the tag and finally copy the address in r11 to the left-hand side
+;; 结果为分配地址的首地址
 
 
 ;;==============================================================

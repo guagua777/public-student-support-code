@@ -676,9 +676,9 @@
     [(If cnd thn els)
      (let*-values ([(thn-tail vars1) (explicate-tail thn)]
                    [(els-tail vars2) (explicate-tail els)])
-     (let-values ([(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
-       ;; (values cnd-tail (append vars3 vars1 vars2))))]))
-       (values cnd-tail (append vars1 vars2 vars3))))]))
+       (let-values ([(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
+         ;; (values cnd-tail (append vars3 vars1 vars2))))]))
+         (values cnd-tail (append vars1 vars2 vars3))))]))
 
 (define (explicate-assign exp var tail)
   (match exp
