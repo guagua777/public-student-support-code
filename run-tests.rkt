@@ -10,10 +10,14 @@
 (require "interp-Cwhile.rkt")
 (require "interp-Lvec.rkt")
 (require "interp-Cvec.rkt")
+(require "interp-Lfun.rkt")
+(require "interp-Cfun.rkt")
 (require "interp.rkt")
 (require "type-check-Lif.rkt")
 (require "type-check-Lwhile.rkt")
 (require "type-check-Lvec.rkt")
+(require "type-check-Lvecof.rkt")
+(require "type-check-Lfun.rkt")
 (require "compiler.rkt")
 (debug-level 1)
 ;(AST-output-syntax 'concrete-syntax)
@@ -41,8 +45,11 @@
 ;(interp-tests "while" type-check-Lwhile '() interp-Lwhile "while_test" (tests-for "while"))
 ;(interp-tests "while" type-check-Lwhile compiler-passes interp-Lwhile "while_test" (tests-for "while"))
 
-(interp-tests "vector" type-check-Lvec '() interp-Lvec "vectors_test" (tests-for "vectors"))
+;(interp-tests "vector" type-check-Lvec '() interp-Lvec "vectors_test" (tests-for "vectors"))
 ;(interp-tests "vector" type-check-Lvec compiler-passes interp-Lvec "vectors_test" (tests-for "vectors"))
+
+(interp-tests "function" type-check-Lfun '() interp-Lfun "functions_test" (tests-for "functions"))
+;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
 
 ;; Uncomment the following when all the passes are complete to
 ;; test the final x86 code.

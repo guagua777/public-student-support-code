@@ -72,31 +72,40 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; prelude的最主要的事情是：向下移动栈指针
-;; conclusion最主要的事情是：将prelude移动的指针移回去
 
-;; prelude移动r15指针，the root stack pointer
-;; conclusion移回r15指针
+;To create the s-expression for the Vector type,
+;we use the unquote-splicing operator ,@ to insert the list t* without its usual start and end parentheses.
 
-;; prelude第一步保存返回地址 return address
-;; caller is map-vec
-;; callee is add1
 
-;; who ever called map-vec, 所以需要保存who的rbp
+;(Program
+; '()
+; (Let
+;  'v
+;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;  (Int 42)))
 
-;In the context of a procedure call, the return address is the location of the instruction
-;that immediately follows the call instruction on the caller side.
-;The function call instruction, callq, pushes the return address onto the stack prior to jumping to the procedure.
-;The register rbp is the base pointer and is used to access variables
-;that are stored in the frame of the current procedure call.
-;The base pointer of the caller is stored immediately after the return address. 
 
-;; 35分钟 explicate control
-
-;; conclusion
-;; 1. move the stack point
-;; 2. pop the callee saved register
-;; 3. pop the rbp
+;(define (type-check-exp env e)
+;  (match e
+;    [(Var x)
+;     (define type (match-alist x env))
+;     (values (HasType (Var x) type) type)]
+;    ...
+;    [(Prim 'vector-set! (list vect (Int i) val))
+;     (define-values (vect-exp vect-type) (type-check-exp env vect))
+;     (define-values (i-exp i-type) (type-check-exp env (Int i)))
+;     (define-values (val-exp val-type) (type-check-exp env val))
+;     (if (not (eq? i-type 'Integer))
+;         (error "The type of index for vector-set! must be an Integer")
+;         ;; 可参考上面的例子，类型为(Vector Integer Integer)
+;         (if (not (eq? (car vect-type) 'Vector))
+;             (error "Vector set got a non vector")
+;             (if (not (equal? (list-ref vect-type (add1 i)) val-type))
+;                 (error (format "Changing vector types is not supported got ~a ~a" 
+;                     (list-ref vect-type (add1 i)) val-type))
+;                 (values (HasType (Prim 'vector-set! (list vect-exp i-exp val-exp))
+;                                  'Void) 'Void))))]
+;    ...))
 
 
 ;; 想一想环境中保存的是什么
@@ -166,6 +175,154 @@
        (Program info (shrink-exp e))])))
 
 ;;--------------------------------------------------------------------------------------
+
+;; 将exp的具体信息显现expose出来
+;; type check 之后 会变成(HasType e type)的类型
+;; (vector a b)是一种运算，运算的结果是一种数据类型，其他的数据类型，如int，var，bool，void都为基本类型
+; This version of the type checker places a special AST node of the form (HasType e type) around each tuple creation.
+;(define (expose-exp e)
+;  (match e
+;    ;; 创建vector   
+;    [(HasType (Prim 'vector es) type)
+;     (let* ([len (length es)] 
+;            [bytes (* 8 len)]
+;            [vect (gensym 'vec)] 
+;            [vars (generate-n-vars len)])
+;       (printf "vect is ~a, vars is ~a\n" vect vars)
+;       (expand-into-lets vars (for/list ([e es]) (expose-exp e)) ;; 递归要将子exp的信息显现expose出来
+;          (do-allocate vect len bytes
+;              (bulk-vector-set (HasType (Var vect) type) vars type) 
+;              type)
+;          type)
+;;       (define bulk-vector-set-r (bulk-vector-set (HasType (Var vect) type) vars type))
+;;       (printf "bulk-vector-set-r is ~a \n" bulk-vector-set-r)
+;;       (expand-into-lets vars (for/list ([e es]) (expose-exp e)) ;; 递归要将子exp的信息显现expose出来
+;;          (do-allocate vect len bytes
+;;                       bulk-vector-set-r
+;;              ;(bulk-vector-set (HasType (Var vect) type) vars type) 
+;;              type)
+;;          type)
+;       )]
+;    [else e]
+;    ;; 其他类型
+;    ))
+
+;; 全部转为临时变量
+;; for/list, range
+;(define (generate-n-vars n)
+;  (if (zero? n) '()
+;      (cons (gensym 'tmp) (generate-n-vars (sub1 n)))))
+
+;(HasType (Let var exp
+;              (HasType (Let var exp
+;                            ...
+;                            (HasType (Let var exp base) base-type)
+;                            ...)
+;                       base-type))
+;         base-type)
+;; 将表达式和变量转换为let的形式，let用hastype包围着
+;(define (expand-into-lets vars exps base base-type)
+;  (if (empty? exps) base
+;    (HasType
+;      (Let (car vars) (car exps) 
+;           (expand-into-lets (cdr vars) (cdr exps) base base-type))
+;      base-type)))
+
+;; ommitting the HasType's for readability
+;; base是什么?
+;(define (do-allocate vect len bytes base type)
+;    (Let '_ (If (Prim '< (list (Prim '+ (list (GlobalValue 'free_ptr) (Int bytes)))
+;                                 (GlobalValue 'fromspace_end)))
+;                (Void)
+;                (Collect bytes))
+;    (Let vect (Allocate len type) base)))
+
+;(HasType (Let '_ (Prim vector-set! ((HasType (Var vec950052) (Vector Integer Integer)) (Int 0) (Var tmp950053)))
+;              (HasType (Let '_ (Prim vector-set! ((HasType (Var vec950052) (Vector Integer Integer)) (Int 1) (Var tmp950054)))
+;                            ;; 最终的值
+;                            (HasType (Var vec950052) (Vector Integer Integer)))
+;                       (Vector Integer Integer)))
+;         (Vector Integer Integer))
+
+;; vect is (HasType (Var vec262750) (Vector Integer Integer))
+;; vars is (tmp262751 tmp262752)
+;; ('_ '_)
+;(define (bulk-vector-set vect vars types)
+;  ;(printf "make-vector-set-exps is ~a \n" (make-vector-set-exps vect 0 vars (cdr types)))
+;  (expand-into-lets (duplicate '_ (length vars))
+;    ;(make-vector-set-exps vect 0 vars (cdr types)) vect types))
+;    (make-vector-set-exps vect 0 vars) vect types))
+
+;; use Racket's make-list instead, for/list
+;(define (duplicate x n) 
+;  (if (zero? n) '()
+;      (cons x (duplicate x (sub1 n)))))
+
+;; 创建vect中的表达式
+; list中有两个元素
+;(
+;#<Prim: vector-set! (#<HasType: #<Var: vec371399> (Vector Integer Integer)> #<Int: 0> #<Var: tmp371400>)>
+;#<Prim: vector-set! (#<HasType: #<Var: vec371399> (Vector Integer Integer)> #<Int: 1> #<Var: tmp371401>)>
+;) 
+;; for/list
+;(define (make-vector-set-exps vect accum vars types)
+;  (if (empty? vars) '()
+;      (cons (Prim 'vector-set! (list vect (Int accum) (Var (car vars))))
+;            (make-vector-set-exps vect (add1 accum) (cdr vars) (cdr types)))))
+
+;(define (make-vector-set-exps vect accum vars)
+;  (if (empty? vars) '()
+;      (cons (Prim 'vector-set! (list vect (Int accum) (Var (car vars))))
+;            (make-vector-set-exps vect (add1 accum) (cdr vars)))))
+
+
+
+;(expose-exp
+;   (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer)))
+;(HasType
+; (Let
+;  'tmp212848
+;  (Int 1)
+;  (HasType
+;   (Let
+;    'tmp212849
+;    (Int 2)
+;    (Let
+;     '_
+;     (If
+;      (Prim
+;       '<
+;       (list
+;        (Prim '+ (list (GlobalValue 'free_ptr) (Int 16)))
+;        (GlobalValue 'fromspace_end)))
+;      (Void)
+;      (collect 16))
+;     (Let
+;      'vec212847
+;      (allocate 2 (Vector Integer Integer))
+;      (HasType
+;       (Let
+;        '_
+;        (Prim
+;         'vector-set!
+;         (list
+;          (HasType (Var 'vec212847) '(Vector Integer Integer))
+;          (Int 0)
+;          (Var 'tmp212848)))
+;        (HasType
+;         (Let
+;          '_
+;          (Prim
+;           'vector-set!
+;           (list
+;            (HasType (Var 'vec212847) '(Vector Integer Integer))
+;            (Int 1)
+;            (Var 'tmp212849)))
+;          (HasType (Var 'vec212847) '(Vector Integer Integer)))
+;         '(Vector Integer Integer)))
+;       '(Vector Integer Integer)))))
+;   '(Vector Integer Integer)))
+; '(Vector Integer Integer))
 
 
 (define (expose-exp e)
@@ -249,6 +406,15 @@
   (match p
     [(Program info e)
      (Program info (expose-exp e))]))
+
+;(expose-p
+; (uniquify
+;  (Program
+;   '()
+;   (Let
+;    'v
+;    (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;    (Int 42)))))
 
 ;;----------------------------------------------------------
 
@@ -394,6 +560,19 @@
     ))
 
 
+;(+ 5 (- 10)) 为 (+ atm exp),需要变换为 (+ atm atm) 的形式
+;(+ 5 tmp1) 但是不能把(- 10)给丢了,需要将其保存起来,且tmp1代表(- 10)
+;(remove-complex-opera*
+; (expose-p
+;  (uniquify
+;   (Program
+;    '()
+;    (Let
+;     'v
+;     (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
+;     (Int 42))))))
+
+
 ;; ------------------------------------------------------------------------
 
 ;; explicate-control 思路
@@ -517,6 +696,55 @@
         (cons (cons 'start tail) Explicate-CFG)))]
     ))
 
+;(Program
+; '()
+; (Let
+;  'v264225
+;  (HasType
+;   (Let
+;    'tmp264227
+;    (Int 1)
+;    (HasType
+;     (Let
+;      'tmp264228
+;      (Int 2)
+;      (Let
+;       '_
+;       (If
+;        (Prim
+;         '<
+;         (list
+;          (Prim '+ (list (GlobalValue 'free_ptr) (Int 16)))
+;          (GlobalValue 'fromspace_end)))
+;        (Void)
+;        (collect 16))
+;       (Let
+;        'vec264226
+;        (allocate 2 (Vector Integer Integer))
+;        (HasType
+;         (Let
+;          '_
+;          (Prim
+;           'vector-set!
+;           (list
+;            (HasType (Var 'vec264226) '(Vector Integer Integer))
+;            (Int 0)
+;            (Var 'tmp264227)))
+;          (HasType
+;           (Let
+;            '_
+;            (Prim
+;             'vector-set!
+;             (list
+;              (HasType (Var 'vec264226) '(Vector Integer Integer))
+;              (Int 1)
+;              (Var 'tmp264228)))
+;            (HasType (Var 'vec264226) '(Vector Integer Integer)))
+;           '(Vector Integer Integer)))
+;         '(Vector Integer Integer)))))
+;     '(Vector Integer Integer)))
+;   '(Vector Integer Integer))
+;  (Int 42)))
 
 ;;------------------------------------------------------------------------
 ;; uncover-locals
@@ -661,6 +889,30 @@
       [#t (Imm 1)]
       [#f (Imm 0)])]))
 
+;(define (slct-stmt tail)
+;  (match tail
+;    [(Assign (Var x) (HasType exp t))
+;     (match exp
+;       ;;...
+;       [(Prim 'vector-ref (list (HasType vect t1) (HasType (Int n) t2))) 
+;        (list (Instr 'movq (list (slct-atom vect) (Reg 'r11))) 
+;              (Instr 'movq (list (Deref 'r11 (* 8 (add1 n))) (Var x))))]
+;       [(Prim 'vector-set! (list (HasType vect t1) (HasType (Int n) t2) (HasType arg t3)))
+;        (list (Instr 'movq (list (slct-atom vect) (Reg 'r11))) 
+;              (Instr 'movq (list (slct-atom arg) (Deref 'r11 (* 8 (add1 n))))) 
+;              (Instr 'movq (list (Imm 0) (Var x))))]
+;       [(Allocate len types)
+;        (let ([tag (calculate-tag (reverse (cdr types)) (length (cdr types)))])
+;          (list (Instr 'movq (list (Global 'free_ptr) (Var x))) 
+;                (Instr 'addq (list (Imm (* 8 (add1 len))) (Global 'free_ptr))) 
+;                (Instr 'movq (list (Var x) (Reg 'r11))) 
+;                (Instr 'movq (list (Imm tag) (Deref 'r11 0)))))]
+;       [(Collect bytes) 
+;        (list (Instr 'movq (list (Reg 'r15) (Reg 'rdi)))
+;              (Instr 'movq (list (Imm bytes) (Reg 'rsi))) 
+;              (Callq 'collect))]
+;       ;;...
+;       )]))
 
 (define (sel-ins-stmt c0stmt)
   (match c0stmt
@@ -950,6 +1202,17 @@
      (define new-info (dict-set info 'conflicts G))
      (X86Program new-info new-Blocks)]))
 
+
+;(define (add-from-instr graph instr live-after types)
+;  (match instr
+;    [(Callq 'collect)
+;     (for ([x live-after]) 
+;       (if (list? (match-alist (Var x) types))  ;; is variable x a vector?, vector-type?
+;         (for ([y (append caller-registers callee-registers)])
+;           (add-edge! graph x y))
+;         (for ([y caller-registers]) 
+;           (add-edge! graph x y))))]
+;    ...))
 
 
 
