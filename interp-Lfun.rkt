@@ -16,6 +16,7 @@
       (match fun-val
         [(Function xs body fun-env)
          (define params-args (for/list ([x xs] [arg arg-vals])
+                               ;(cons x arg)))
                                (cons x (box arg))))
          (define new-env (append params-args fun-env))
          ((interp-exp new-env) body)]
@@ -44,6 +45,7 @@
         [(ProgramDefsExp info ds body)
          (let ([top-level (for/list ([d ds]) (interp-def d))])
            (for/list ([f (in-dict-values top-level)])
+             ;(printf "f is ~a \n" f)
              (set-box! f (match (unbox f)
                            [(Function xs body '())
                             (Function xs body top-level)])))
@@ -63,3 +65,38 @@
 
 (define (interp-Lfun p)
   (send (new interp-Lfun-class) interp-program p))
+
+;(interp-Lfun
+; (ProgramDefsExp
+; '()
+; (list (Def 'id '((x : Integer)) 'Integer '() (Var 'x)))
+; (Apply (Var 'id) (list (Int 42)))))
+;
+;(interp-Lfun
+; (ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'map
+;   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
+;   '(Vector Integer Integer)
+;   '()
+;   (HasType
+;    (Prim
+;     'vector
+;     (list
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+;    '(Vector Integer Integer)))
+;  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+; (Prim
+;  'vector-ref
+;  (list
+;   (Apply
+;    (Var 'map)
+;    (list
+;     (Var 'inc)
+;     (HasType
+;      (Prim 'vector (list (Int 0) (Int 41)))
+;      '(Vector Integer Integer))))
+;   (Int 1)))))

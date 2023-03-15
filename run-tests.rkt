@@ -10,6 +10,8 @@
 (require "interp-Cwhile.rkt")
 (require "interp-Lvec.rkt")
 (require "interp-Cvec.rkt")
+(require "interp-Lvecof.rkt")
+(require "interp-Cvecof.rkt")
 (require "interp-Lfun.rkt")
 (require "interp-Cfun.rkt")
 (require "interp.rkt")

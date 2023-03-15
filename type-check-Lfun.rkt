@@ -29,18 +29,34 @@
          (and (for/and ([t1 ts1] [t2 ts2])
                 (type-equal? t1 t2))
               (type-equal? rt1 rt2))]
-        [(other wise) (super type-equal? t1 t2)]))
+        [(other wise)
+         (super type-equal? t1 t2)]))
     
+;    (define/public (type-check-apply env e es)
+;      (define-values (e^ ty) ((type-check-exp env) e))
+;      (define-values (e* ty*) (for/lists (e* ty*) ([e (in-list es)])
+;                                ((type-check-exp env) e)))
+;      (match ty
+;        [`(,ty^* ... -> ,rt)
+;         (for ([arg-ty ty*] [param-ty ty^*])
+;           (check-type-equal? arg-ty param-ty (Apply e es)))
+;         (values e^ e* rt)]
+;        [else
+;         (error 'type-check "expected a function, not ~a" ty)]))
+
     (define/public (type-check-apply env e es)
       (define-values (e^ ty) ((type-check-exp env) e))
-      (define-values (e* ty*) (for/lists (e* ty*) ([e (in-list es)])
+      (define-values (e*1 ty*1) (for/lists (e* ty*) ([e (in-list es)])
                                 ((type-check-exp env) e)))
       (match ty
         [`(,ty^* ... -> ,rt)
-         (for ([arg-ty ty*] [param-ty ty^*])
+         (for ([arg-ty ty*1] [param-ty ty^*])
            (check-type-equal? arg-ty param-ty (Apply e es)))
-         (values e^ e* rt)]
-        [else (error 'type-check "expected a function, not ~a" ty)]))
+         (values e^ e*1 rt)]
+        [else
+         (error 'type-check "expected a function, not ~a" ty)]))
+
+    
 
     (define/override (type-check-exp env)
       (lambda (e)
@@ -67,22 +83,27 @@
            (define-values (body^ ty^) ((type-check-exp new-env) body))
            (check-type-equal? ty^ rt body)
            (Def f p:t* rt info body^)]
-          [else (error 'type-check "ill-formed function definition ~a" e)]
+          [else
+           (error 'type-check "ill-formed function definition ~a" e)]
           )))	 
 
     (define/public (fun-def-type d)
-      (match d [(Def f (list `[,xs : ,ps] ...) rt info body)  `(,@ps -> ,rt)]
-        [else (error 'type-check "ill-formed function definition in ~a" d)]))
+      (match d
+        [(Def f (list `[,xs : ,ps] ...) rt info body)
+         `(,@ps -> ,rt)]
+        [else
+         (error 'type-check "ill-formed function definition in ~a" d)]))
 
     (define/override (type-check-program e)
       (match e
         [(ProgramDefsExp info ds body)
          (define new-env (for/list ([d ds])
+                           ;; 函数和类型的pair
                            (cons (Def-name d) (fun-def-type d))))
          (define ds^ (for/list ([d ds]) ((type-check-def new-env) d)))
          (define-values (body^ ty) ((type-check-exp new-env) body))
          (check-type-equal? ty 'Integer body)
-         (ProgramDefsExp info ds^ body^)]
+         (ProgramDefsExp info ds^ body^)]        
         [(ProgramDefs info ds)
          (define new-env (for/list ([d ds]) 
                            (cons (Def-name d) (fun-def-type d))))
@@ -98,4 +119,33 @@
 
 (define (type-check-Lfun p)
   (send (new type-check-Lfun-class) type-check-program p))
+
+(type-check-Lfun
+ (ProgramDefsExp
+ '()
+ (list
+  (Def
+   'map
+   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
+   '(Vector Integer Integer)
+   '()
+   (HasType
+    (Prim
+     'vector
+     (list
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+    '(Vector Integer Integer)))
+  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+ (Prim
+  'vector-ref
+  (list
+   (Apply
+    (Var 'map)
+    (list
+     (Var 'inc)
+     (HasType
+      (Prim 'vector (list (Int 0) (Int 41)))
+      '(Vector Integer Integer))))
+   (Int 1)))))
 
