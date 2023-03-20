@@ -12,6 +12,8 @@
 (require "interp-Cwhile.rkt")
 (require "interp-Lvec.rkt")
 (require "interp-Cvec.rkt")
+(require "interp-Lfun.rkt")
+(require "interp-Cfun.rkt")
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "type-check-Lif.rkt")
@@ -20,6 +22,8 @@
 (require "type-check-Cwhile.rkt")
 (require "type-check-Lvec.rkt")
 (require "type-check-Cvec.rkt")
+(require "type-check-Lfun.rkt")
+(require "type-check-Cfun.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
@@ -68,6 +72,9 @@
   (match p
     [(Program info e) (Program info (pe-exp e))]))
 
+;(pe-exp
+; (Prim '+ (list (Int 1) (Prim '+ (list (Prim 'read '()) (Int 1))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -98,8 +105,164 @@
 ;; 2. pop the callee saved register
 ;; 3. pop the rbp
 
+;rdi rsi rdx rcx r8 r9
 
-;; 想一想环境中保存的是什么
+;The caller sets the stack pointer, register rsp, to the last data item in its frame.
+;The callee must not change anything in the caller’s frame, that is, anything that is at or above the stack pointer.
+;The callee is free to use locations that are below the stack pointer.
+
+;; caller saved: rax rcx rdx rsi rdi r8 r9 r10 r11
+;; callee saved: rsp rbp rbx r12 r13 r14 r15
+
+
+;;------------------------------------------------------
+;; the process of compiler
+;shrink --- uniquify --- reveal functions --- limit functions --- expose allocation ---
+;uncover get! --- remove complex operands --- explicate control --- ....
+
+;; reveal 和 limit 倒换了下
+
+
+;; -------------------------------------------------------------------------------------
+;; shrink
+
+(define shrink-exp
+  (lambda (e)
+    (match e
+      [(Apply f es)
+       (define new-f (shrink-exp f))
+       (define new-es (for/list ([e es]) (shrink-exp e)))
+       (Apply new-f new-es)]
+      [(Prim 'and (list e1 e2))
+       (If (shrink-exp e1) (shrink-exp e2) (Bool #f))]
+      [(Prim 'or (list e1 e2))
+       (If (shrink-exp e1) (Bool #t) (shrink-exp e2))]
+      [(Prim op (list e1))
+       (Prim op (list (shrink-exp e1)))]
+      [(Prim op (list e1 e2))
+       (Prim op (list (shrink-exp e1) (shrink-exp e2)))]
+      [(Let x e1 body)
+       (Let x (shrink-exp e1) (shrink-exp body))]
+      [(If cnd thn els)
+       (If (shrink-exp cnd) (shrink-exp thn) (shrink-exp els))]
+      [else e])))
+      
+      
+;(define shrink
+;  (lambda (p)
+;    (match p
+;      [(Program info e)
+;       (Program info (shrink-exp e))])))
+
+
+;(define (non-apply-ast)
+;  (set-union (source-primitives)
+;             (set 'eq? 'vector 'vector-ref 'vector-set! 'if 'let
+;                  'define 'program 'void 'fun-ref 'has-type
+;                  'collect 'allocate 'global-value)))
+;
+;(define (fun-def-name d)
+;  (match d
+;    [(Def f ps rt info body)
+;     f]
+;    [else
+;     (error 'fun-def-name "ill-formed function definition in ~a" d)]))
+
+;(define (shrink-exp e)
+;  (match e
+;    ;; 参考Lfun的抽象语法
+;    [(Apply f es)
+;     (define new-f (shrink-exp f))
+;     (define new-es (for/list ([e es]) (shrink-exp e)))
+;     (Apply new-f new-es)]
+;    [else
+;     (super shrink-exp e)]))
+
+(define (shrink-def d)
+  (match d
+    [(Def f params rt info body)
+     (Def f params rt info (shrink-exp body))]
+    [else
+     (error "shrink-def error" d)]))
+
+(define (shrink e)
+  (match e
+    [(ProgramDefsExp info ds body)
+     (define ds^ (for/list ([d ds]) (shrink-def d)))
+     (define body^ (shrink-exp body))
+     (define main (Def 'main '() 'Integer '() body^))
+     (ProgramDefs info (append ds^ (list main)))]
+    [else
+     (error "shrink couldn't match" e)]))
+
+;; 将body使用main函数包裹起来
+
+;; shrink后将ProgramDefsExp变成了ProgramDefs，也就是多个函数的列表
+
+;(shrink 
+;(ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'map
+;   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
+;   '(Vector Integer Integer)
+;   '()
+;   (HasType
+;    (Prim
+;     'vector
+;     (list
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+;    '(Vector Integer Integer)))
+;  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+; (Prim
+;  'vector-ref
+;  (list
+;   (Apply
+;    (Var 'map)
+;    (list
+;     (Var 'inc)
+;     (HasType
+;      (Prim 'vector (list (Int 0) (Int 41)))
+;      '(Vector Integer Integer))))
+;   (Int 1)))))
+
+
+;;--------------------------------------------------------------------------------------
+;; partial-eval Lfun -> Lfun
+
+;(define (pe-exp env) 
+;  (lambda (e)
+;    ;(copious "Lfun pe-exp" e)
+;    (define recur (pe-exp env))
+;    (match e
+;      [(Apply f es)
+;       (define new-es (map recur es))
+;       (define new-f (recur f))
+;       (Apply new-f new-es)]
+;      [else
+;       (super ((pe-exp env) e))])))
+;
+;(define (pe-def d)
+;  (match d
+;    [(Def f ps rt info body)
+;     (Def f ps rt info ((pe-exp '()) body))]))
+;
+;(define (partial-eval e)
+;  (match e
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (pe-def d)))]))
+
+;;----------------------------------------------------------------
+;; uniquify
+
+;; 环境中保存的是什么？
+;; 1. 对应的实际数据
+;; 2. 对应的类型
+;; 3. 对应的别名
+
+
 (define (uniquify-exp env)
   (lambda (e)
     (match e
@@ -123,50 +286,516 @@
       [(If cnd thn els)
        (If ((uniquify-exp env) cnd) ((uniquify-exp env) thn) ((uniquify-exp env) els))]
       [(Prim op es)
-       (Prim op (for/list ([e es]) ((uniquify-exp env) e)))])))
+       (Prim op (for/list ([e es]) ((uniquify-exp env) e)))]
+      [(Apply f es)
+       (define new-es (map (uniquify-exp env) es))
+       (define new-f ((uniquify-exp env) f))
+       (Apply new-f new-es)])))
 
-;; uniquify : R1 -> R1
+(define (uniquify-def env)
+  (lambda (d)
+    (match d
+      [(Def f (list `[,xs : ,ps] ...) rt info body)
+       ;; 使用新的参数名替换老的参数名
+       (define new-xs (for/list ([x xs]) (gensym x)))
+       (define new-env (append (map cons xs new-xs) env))
+       ;; 使用新的函数名替换老的函数名
+       (Def (cdr (assq f env))
+            (map (lambda (x p) `[,x : ,p]) new-xs ps)
+            rt info
+            ((uniquify-exp new-env) body))])))
+       
+;(define (uniquify p)
+;  (match p
+;    [(ProgramDefs info e)
+;     (Program info ((uniquify-exp '()) e))]))
+
 (define (uniquify p)
   (match p
-    [(Program info e)
-     (Program info ((uniquify-exp '()) e))]))
+    [(ProgramDefs info ds)
+     (define new-env (for/list ([d ds])
+                       (match d
+                         [(Def f (list `[,xs : ,ps] ...) rt info body)
+                          (define new-f (cond
+                                          [(eq? f 'main) 'main]
+                                          [else (gensym f)]))
+                          (cons f new-f)]
+                         [else (error "illegal def")])))
+     (ProgramDefs info (for/list ([d ds]) ((uniquify-def new-env) d)))]))
+
+;(define/override (uniquify-exp env)
+;  (lambda (e)
+;    (define recur (uniquify-exp env))
+;    (match e
+;      [(HasType e t)
+;       (HasType (recur e) t)]
+;      [(Apply f es)
+;       (define new-es (map recur es))
+;       (define new-f (recur f))
+;       (Apply new-f new-es)]
+;      [else
+;       ((super uniquify-exp env) e)])))
+;
+;(define/public (uniquify-def env)
+;  (lambda (d)
+;    (match d
+;      [(Def f (list `[,xs : ,ps] ...) rt info body)
+;       (define new-xs (for/list ([x xs]) (gensym (racket-id->c-id x))))
+;       (define new-env (append (map cons xs new-xs) env))
+;       (Def (cdr (assq f env))
+;            (map (lambda (x t) `[,x : ,t]) new-xs ps)
+;            rt info ((uniquify-exp new-env) body))])))
+;
+;(define/override (uniquify e)
+;  (match e
+;    [(ProgramDefs info ds)
+;     (define new-env
+;       (for/list ([d ds])
+;         (match d
+;           [(Def f (list `[,xs : ,ps] ...) rt info body)
+;            (define new-f
+;              (cond
+;                [(eq? f 'main) 'main]
+;                [else (gensym (racket-id->c-id f))]))
+;            (cons f new-f)]
+;           [else
+;            (error "ill def")])))
+;     (ProgramDefs info (for/list ([d ds]) ((uniquify-def new-env) d)))]))
 
 ;(uniquify
-;(Program
-; '()
-; (Let
-;  'v
-;  (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
-;  (Int 42))))
-
-;; ------------------------------------------------------------
-
-(define shrink-exp
-  (lambda (e)
-    (match e
-      [(Prim 'and (list e1 e2))
-       (If (shrink-exp e1) (shrink-exp e2) (Bool #f))]
-      [(Prim 'or (list e1 e2))
-       (If (shrink-exp e1) (Bool #t) (shrink-exp e2))]
-      [(Prim op (list e1))
-       (Prim op (list (shrink-exp e1)))]
-      [(Prim op (list e1 e2))
-       (Prim op (list (shrink-exp e1) (shrink-exp e2)))]
-      [(Let x e1 body)
-       (Let x (shrink-exp e1) (shrink-exp body))]
-      [(If cnd thn els)
-       (If (shrink-exp cnd) (shrink-exp thn) (shrink-exp els))]
-      [else e])))
-      
-      
-(define shrink
-  (lambda (p)
-    (match p
-      [(Program info e)
-       (Program info (shrink-exp e))])))
+; (ProgramDefs
+;  '()
+;  (list
+;   (Def
+;    'map
+;    '((f : (Integer -> Integer))
+;      (v : (Vector Integer Integer)))
+;    '(Vector Integer Integer)
+;    '()
+;    (HasType
+;     (Prim
+;      'vector
+;      (list
+;       (Apply
+;        (Var 'f)
+;        (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+;       (Apply
+;        (Var 'f)
+;        (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+;     '(Vector Integer Integer)))
+;   (Def
+;    'inc
+;    '((x : Integer))
+;    'Integer
+;    '()
+;    (Prim '+ (list (Var 'x) (Int 1))))
+;   (Def
+;    'main
+;    '()
+;    'Integer
+;    '()
+;    (Prim
+;     'vector-ref
+;     (list
+;      (Apply
+;       (Var 'map)
+;       (list
+;        (Var 'inc)
+;        (HasType
+;         (Prim 'vector (list (Int 0) (Int 41)))
+;         '(Vector Integer Integer))))
+;      (Int 1)))))))
 
 ;;--------------------------------------------------------------------------------------
+;; reveal functions and application
 
+(define (reveal-functions-exp funs)
+  (lambda (e)
+    (let* ([recur (reveal-functions-exp funs)])
+      (match e
+        [(Int n) (Int n)]
+        [(Var x)
+         (cond
+           [(assq x funs);;(memq x funs)
+            (define f-pcount (assq x funs))
+            (FunRef (car f-pcount) (cdr f-pcount))]
+           [else (Var x)])]
+        [(Void) (Void)]
+        [(Bool b) (Bool b)]
+        [(HasType e t) (HasType (recur e) t)]
+        [(Let x e body)
+         (Let x (recur e) (recur body))]
+        [(If cnd thn els)
+         (If (recur cnd) (recur thn) (recur els))]
+        [(Prim op es)
+         (Prim op (map recur es))]
+        [(Apply f es)
+         (Apply (recur f) (map recur es))]
+        [else
+         (error "reveal error")]))))
+
+(define (reveal-functions-def funs)
+  (lambda (e)
+    (match e
+      [(Def f params rt info body)
+       (Def f params rt info ((reveal-functions-exp funs) body))]
+      [else
+       (error "reveal def error")])))
+
+(define (reveal-functions e)
+  (match e
+    [(ProgramDefs info ds)
+     (define funs (for/list ([d ds])
+                    (cons (Def-name d) (length (Def-param* d)))));;(Def-name d)))
+     (ProgramDefs info (for/list ([d ds])
+                         ((reveal-functions-def funs) d)))]
+    [else
+     (error "reveal error")]))
+
+;(reveal-functions
+;(uniquify
+; (ProgramDefs
+;  '()
+;  (list
+;   (Def
+;    'map
+;    '((f : (Integer -> Integer))
+;      (v : (Vector Integer Integer)))
+;    '(Vector Integer Integer)
+;    '()
+;    (HasType
+;     (Prim
+;      'vector
+;      (list
+;       (Apply
+;        (Var 'f)
+;        (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+;       (Apply
+;        (Var 'f)
+;        (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+;     '(Vector Integer Integer)))
+;   (Def
+;    'inc
+;    '((x : Integer))
+;    'Integer
+;    '()
+;    (Prim '+ (list (Var 'x) (Int 1))))
+;   (Def
+;    'main
+;    '()
+;    'Integer
+;    '()
+;    (Prim
+;     'vector-ref
+;     (list
+;      (Apply
+;       (Var 'map)
+;       (list
+;        (Var 'inc)
+;        (HasType
+;         (Prim 'vector (list (Int 0) (Int 41)))
+;         '(Vector Integer Integer))))
+;      (Int 1))))))))
+
+;;--------------------------------------------------------------------------------------
+;; limit-functions
+
+;; 需要改动的点
+;; 1. 函数定义
+;; 2. 对应的函数定义中的body，body里面的参数需要从改变后的vector中获取
+;; 3. 函数调用
+
+
+(define (limit-type t)
+  (match t
+    ;; 参数为vector
+    [`(Vector ,ts ...)
+     (define ts^ (for/list ([t ts]) (limit-type t)))
+     `(Vector ,@ts^)]
+    ;; 参数为函数
+    [`(,ts ... -> ,rt)
+     (define ts^ (for/list ([t ts]) (limit-type t)))
+     (define rt^ (limit-type rt))
+     (define n (vector-length arg-registers))
+     (cond
+       [(> (length ts^) n)
+        (define-values (first-ts last-ts) (split-at ts^ (- n 1)))
+        `(,@first-ts (Vector ,@last-ts) -> ,rt^)]
+       [else
+        `(,@ts^ -> ,rt^)])]
+    ;; 普通类型
+    [else t]))
+
+(define (limit-functions-exp param-env)
+  (lambda (e)
+    (let ([recur (limit-functions-exp param-env)])
+      (match e
+        [(Int n) e]
+        [(Var x)
+         (let ([res (assq x param-env)])
+           (cond
+             [res
+              (match res
+                [`(,arg ,typ1 ,typ2 ,vec ,ind)
+                 (Prim 'vector-ref (list vec (Int ind)))] ;; (Var xi) ⇒ (Prim 'vector-ref (list tup (Int k)))
+                [else (error "res is unmatched")])]
+             [else (Var x)]))]
+        [(FunRef f n)
+         (FunRef f n)]
+        [(Let x e body)
+         (Let x (recur e) (recur body))]
+        [(Void) (Void)]
+        [(Bool b) (Bool b)]
+        [(If cnd thn els)
+         (If (recur cnd) (recur thn) (recur els))]
+        [(HasType e t) ;; 注意 看看HasType的BNF定义，hastype是怎么来的
+         (HasType (recur e) (limit-type t))]
+        [(Prim op es)
+         (Prim op (map recur es))]
+        [(Apply f es)
+         (define n (vector-length arg-registers))
+         (cond
+           [(<= (length es) n)
+            (Apply f (map recur es))]
+           [else
+            ;; pass the first n-1 arguments as normal, and the rest in a vector
+            (define-values (first-es last-es)
+              (cond
+                [(> (length es) n)
+                 (split-at es (- n 1))]
+                [else
+                 (values es '())]))
+            ;(printf "last-es is ~a \n" last-es)
+            ;; (e0 e1 ... en) ⇒ (e0 e1 ...e5 (vector e6 ...en))
+            (define vector-val (Prim 'vector (map recur last-es))) 
+            (Apply f (append (map recur first-es) (list vector-val)))])]
+        [else
+         (error "limit functions exp unmatched ~a" e)]))))
+
+(define (limit-functions-def d)
+  (match d
+    [(Def f params rt info body)
+     (define n (vector-length arg-registers))
+     ;; update the parameter types
+     (define new-params (for/list ([p params])
+                          (match p
+                            [`[,x : ,T]
+                             `[,x : ,(limit-type T)]])))
+     (cond
+       [(<= (length new-params) n)
+        (Def f new-params rt info ((limit-functions-exp '()) body))]
+       [else
+        (define vec-param (gensym 'vec-param))
+        ;; separate the first n-1 parameters from the rest
+        (define-values (first-params last-params)
+          (cond
+            [(> (length new-params) n)
+             (split-at new-params (- n 1))]
+            [else
+             (values new-params '())]))
+        ;; create the type for the new vector paramter
+        (define vec-typ
+          `(Vector ,@(map (lambda (e)
+                            (match e
+                              [`(,arg : ,typ)
+                               typ])) last-params))) ;; 只要类型
+        ;; create an environment for helping to translate parameters to vector references
+        (define param-env
+          (map (lambda (e i)
+                 (match e
+                   [`(,arg : ,typ)
+                    `(,arg ,typ ,vec-typ ,(Var vec-param) ,i)]))
+               last-params (range (length last-params))))
+        ;(printf "param-env ======= is ~a \n" param-env)
+        (define new-body ((limit-functions-exp param-env) body))
+        (Def f (append first-params `((,vec-param : ,vec-typ))) rt info new-body)])]))
+          
+         
+(define (limit-functions e)
+  (match e
+    [(ProgramDefs info ds)
+     (ProgramDefs info (for/list ([d ds]) (limit-functions-def d)))]
+    [else
+     (error "def is error")]))
+
+
+;((v5540345 (Vector Integer Integer Integer Integer Integer Integer Integer)
+;           (Vector
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer))
+;           (Var: vec-param540349) 0)
+;
+; (v6540346 (Vector Integer Integer Integer Integer Integer Integer Integer)
+;           (Vector
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer))
+;           (Var: vec-param540349) 1)
+; (v7540347 (Vector Integer Integer Integer Integer Integer Integer Integer)
+;           (Vector
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer)
+;            (Vector Integer Integer Integer Integer Integer Integer Integer))
+;           (Var: vec-param540349) 2))
+
+#;(limit-functions
+(uniquify
+(shrink
+(ProgramDefsExp
+ '()
+ (list
+  (Def
+   'map
+   '((f : (Integer -> Integer))
+     (v1 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v2 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v3 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v4 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v5 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v6 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v7 : (Vector Integer Integer Integer Integer Integer Integer Integer)))
+   '(Vector Integer Integer Integer Integer Integer Integer Integer)
+   '()
+   (HasType
+    (Prim
+     'vector
+     (list
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v1) (Int 0)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v2) (Int 1)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v3) (Int 2)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v4) (Int 3)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v5) (Int 4)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v6) (Int 5)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v7) (Int 6)))))))
+    '(Vector Integer Integer Integer Integer Integer Integer Integer)))
+  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+ (Prim
+  'vector-ref
+  (list
+   (Apply
+    (Var 'map)
+    (list
+     (Var 'inc)
+     (HasType
+      (Prim
+       'vector
+       (list (Int 1) (Int 2) (Int 3) (Int 4) (Int 5) (Int 6) (Int 7)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list (Int 11) (Int 22) (Int 33) (Int 44) (Int 55) (Int 66) (Int 77)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111)
+        (Int 222)
+        (Int 333)
+        (Int 444)
+        (Int 555)
+        (Int 666)
+        (Int 777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111)
+        (Int 2222)
+        (Int 3333)
+        (Int 4444)
+        (Int 5555)
+        (Int 6666)
+        (Int 7777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111)
+        (Int 22222)
+        (Int 33333)
+        (Int 44444)
+        (Int 55555)
+        (Int 66666)
+        (Int 77777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111111)
+        (Int 222222)
+        (Int 333333)
+        (Int 444444)
+        (Int 555555)
+        (Int 666666)
+        (Int 777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111111)
+        (Int 2222222)
+        (Int 3333333)
+        (Int 4444444)
+        (Int 5555555)
+        (Int 6666666)
+        (Int 7777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111111)
+        (Int 22222222)
+        (Int 33333333)
+        (Int 44444444)
+        (Int 55555555)
+        (Int 66666666)
+        (Int 77777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))))
+   (Int 5)))))))
+
+#;(limit-functions
+(uniquify
+(shrink
+(ProgramDefsExp
+ '()
+ (list
+  (Def
+   'map
+   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
+   '(Vector Integer Integer)
+   '()
+   (HasType
+    (Prim
+     'vector
+     (list
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+    '(Vector Integer Integer)))
+  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+ (Prim
+  'vector-ref
+  (list
+   (Apply
+    (Var 'map)
+    (list
+     (Var 'inc)
+     (HasType
+      (Prim 'vector (list (Int 0) (Int 41)))
+      '(Vector Integer Integer))))
+   (Int 1)))))))
+
+
+
+;;--------------------------------------------------------------------------------------
+;; expose allocation
 
 (define (expose-exp e)
   (match e
@@ -199,6 +828,9 @@
     [(Int n) (Int n)]
     [(Var x) (Var x)]
     [(Bool b) (Bool b)]
+    [(FunRef f n) (FunRef f n)]
+    [(Apply f es)
+     (Apply f (for/list ([e es]) (expose-exp e)))]
     [else e]))
                  
 (define (generate-n-vars n)
@@ -244,13 +876,151 @@
       (cons (Prim 'vector-set! (list vect (Int accum) (Var (car vars))))
             (make-vector-set-exps vect (add1 accum) (cdr vars)))))
 
+(define (expose-allocation-def def)
+  (match def
+    [(Def f params t info e)
+     (Def f params t info (expose-exp e))];(expose-alloc-exp e))]
+    [else
+     (error "expose allocation def error")]))
 
-(define (expose-p p)
-  (match p
-    [(Program info e)
-     (Program info (expose-exp e))]))
+
+;(define (expose-p p)
+;  (match p
+;    [(Program info e)
+;     (Program info (expose-exp e))]))
+
+(define (expose-allocation e)
+  (match e
+    [(ProgramDefs info ds)
+     (ProgramDefs info (for/list ([d ds]) (expose-allocation-def d)))]))
+
+#;(expose-allocation
+(limit-functions
+(uniquify
+(shrink
+(ProgramDefsExp
+ '()
+ (list
+  (Def
+   'map
+   '((f : (Integer -> Integer))
+     (v1 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v2 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v3 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v4 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v5 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v6 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v7 : (Vector Integer Integer Integer Integer Integer Integer Integer)))
+   '(Vector Integer Integer Integer Integer Integer Integer Integer)
+   '()
+   (HasType
+    (Prim
+     'vector
+     (list
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v1) (Int 0)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v2) (Int 1)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v3) (Int 2)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v4) (Int 3)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v5) (Int 4)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v6) (Int 5)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v7) (Int 6)))))))
+    '(Vector Integer Integer Integer Integer Integer Integer Integer)))
+  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+ (Prim
+  'vector-ref
+  (list
+   (Apply
+    (Var 'map)
+    (list
+     (Var 'inc)
+     (HasType
+      (Prim
+       'vector
+       (list (Int 1) (Int 2) (Int 3) (Int 4) (Int 5) (Int 6) (Int 7)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list (Int 11) (Int 22) (Int 33) (Int 44) (Int 55) (Int 66) (Int 77)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111)
+        (Int 222)
+        (Int 333)
+        (Int 444)
+        (Int 555)
+        (Int 666)
+        (Int 777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111)
+        (Int 2222)
+        (Int 3333)
+        (Int 4444)
+        (Int 5555)
+        (Int 6666)
+        (Int 7777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111)
+        (Int 22222)
+        (Int 33333)
+        (Int 44444)
+        (Int 55555)
+        (Int 66666)
+        (Int 77777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111111)
+        (Int 222222)
+        (Int 333333)
+        (Int 444444)
+        (Int 555555)
+        (Int 666666)
+        (Int 777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111111)
+        (Int 2222222)
+        (Int 3333333)
+        (Int 4444444)
+        (Int 5555555)
+        (Int 6666666)
+        (Int 7777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111111)
+        (Int 22222222)
+        (Int 33333333)
+        (Int 44444444)
+        (Int 55555555)
+        (Int 66666666)
+        (Int 77777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))))
+   (Int 5))))))))
+
+
 
 ;;----------------------------------------------------------
+;; uncover-get
 
 ;We mark each read from a mutable variable with the form get! (GetBang in abstract syntax)
 
@@ -314,11 +1084,17 @@
        (Program info ((uncover-get!-exp set-coll) e))])))    
 
 ;;----------------------------------------------------------------
+;; remove complex
 
-(define (remove-complex-opera* p)
-    (match p
-      [(Program info e)
-       (Program info (rco-exp e))]))
+;(define (remove-complex-opera* p)
+;    (match p
+;      [(Program info e)
+;       (Program info (rco-exp e))]))
+
+(define (remove-complex-opera* e)
+  (match e
+    [(ProgramDefs info ds)
+     (ProgramDefs info (for/list ([d ds]) (rco-def d)))]))
 
 (define (rco-atom e)
   ;(printf "e is ===== ~a \n" e)
@@ -360,6 +1136,16 @@
              (append ss `((,tmp . ,(If e1 e2 e3)))))])]
     [(Void)
      (values (Void) '())]
+    [(FunRef f n)
+     (define tmp (gensym 'tmp))
+     (values (Var tmp) `((,tmp . ,(FunRef f n))))]
+    [(Apply f es)
+     (define-values (new-f f-ss) (rco-atom f))
+     (define-values (new-es sss) (for/lists (ls1 ls2) ([e es]) (rco-atom e)))
+     (define fun-apply (Apply new-f new-es))
+     (define tmp (gensym 'tmp))
+     (values (Var tmp) (append (append f-ss (append* sss))
+                               `((,tmp . ,fun-apply))))]
     ))
 
 (define (make-lets^ bs e)
@@ -389,17 +1175,206 @@
     [(HasType e^ type)
      (HasType (rco-exp e^) type)]
     [(Void) (Void)]
-    [(Allocate amount type)
-     e] 
+    [(Allocate amount type) e]
+    [(FunRef label n)
+     (FunRef label n)]
+    [(Apply f es)
+     (define-values (new-f f-ss) (rco-atom f))
+     (define-values (new-es sss) (for/lists (ls1 ls2) ([e es])
+                                   (rco-atom e)))
+     (make-lets (append f-ss (append* sss))
+                (Apply new-f new-es))]
     ))
 
 
+(define (rco-def d)
+  (match d
+    [(Def f params ty info e)
+     (Def f params ty info (rco-exp e))]))
+
+;; Recall that an atomic expression ends up as an immediate argument of an x86 instruction.
+
+;(define/override (roc-atom e)
+;  (match e
+;    [(FunRef f n)
+;     (define tmp (gensym 'tmp))
+;     (values (Var tmp) `((,tmp . ,(FunRef f n))))]
+;    [(Apply f es)
+;     (define-values (new-f f-ss) (rco-atom f))
+;     (define-values (new-es sss) (for/lists (ls1 ls2) ([e es]) (rco-atom e)))
+;     (define fun-apply (Apply new-f new-es))
+;     (define tmp (gensym 'tmp))
+;     (values (Var tmp) (append (append f-ss (append* sss))
+;                               `((,tmp . ,fun-apply))))]
+;    [else
+;     (super rco-atom e)]))
+;
+;(define/override (rco-exp e)
+;  (match e
+;    [(FunRef label n)
+;     (FunRef label n)]
+;    [(Apply f es)
+;     (define-values (new-f f-ss) (rco-atom f))
+;     (define-values (new-es sss) (for/lists (ls1 ls2) ([e es])
+;                                   (rco-atom e)))
+;     (make-lets (append f-ss (append* sss))
+;                (Apply new-f new-es))]
+;    [else
+;     (super rco-exp e)]))
+;
+;(define/override (rco-pred e)
+;  (match e
+;    [(Apply f es)
+;     (define-values (new-f ss) (rco-atom f))
+;     (define-values (new-es sss)
+;       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+;     (make-lets (append ss (append* sss))
+;                (Apply new-f new-es))]
+;    [else
+;     (super rco-pred e)]))
+;
+;(define/public (rco-def d)
+;  (match d
+;    [(Def f params ty info e)
+;     (Def f params ty info (rco-exp e))]))
+;
+;(define/override (remove-conplex-opera* e)
+;  (match e
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (rco-def d)))]))
+
+(remove-complex-opera*
+(expose-allocation
+(limit-functions
+(uniquify
+(shrink
+(ProgramDefsExp
+ '()
+ (list
+  (Def
+   'map
+   '((f : (Integer -> Integer))
+     (v1 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v2 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v3 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v4 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v5 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v6 : (Vector Integer Integer Integer Integer Integer Integer Integer))
+     (v7 : (Vector Integer Integer Integer Integer Integer Integer Integer)))
+   '(Vector Integer Integer Integer Integer Integer Integer Integer)
+   '()
+   (HasType
+    (Prim
+     'vector
+     (list
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v1) (Int 0)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v2) (Int 1)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v3) (Int 2)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v4) (Int 3)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v5) (Int 4)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v6) (Int 5)))))
+      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v7) (Int 6)))))))
+    '(Vector Integer Integer Integer Integer Integer Integer Integer)))
+  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+ (Prim
+  'vector-ref
+  (list
+   (Apply
+    (Var 'map)
+    (list
+     (Var 'inc)
+     (HasType
+      (Prim
+       'vector
+       (list (Int 1) (Int 2) (Int 3) (Int 4) (Int 5) (Int 6) (Int 7)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list (Int 11) (Int 22) (Int 33) (Int 44) (Int 55) (Int 66) (Int 77)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111)
+        (Int 222)
+        (Int 333)
+        (Int 444)
+        (Int 555)
+        (Int 666)
+        (Int 777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111)
+        (Int 2222)
+        (Int 3333)
+        (Int 4444)
+        (Int 5555)
+        (Int 6666)
+        (Int 7777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111)
+        (Int 22222)
+        (Int 33333)
+        (Int 44444)
+        (Int 55555)
+        (Int 66666)
+        (Int 77777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 111111)
+        (Int 222222)
+        (Int 333333)
+        (Int 444444)
+        (Int 555555)
+        (Int 666666)
+        (Int 777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 1111111)
+        (Int 2222222)
+        (Int 3333333)
+        (Int 4444444)
+        (Int 5555555)
+        (Int 6666666)
+        (Int 7777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))
+     (HasType
+      (Prim
+       'vector
+       (list
+        (Int 11111111)
+        (Int 22222222)
+        (Int 33333333)
+        (Int 44444444)
+        (Int 55555555)
+        (Int 66666666)
+        (Int 77777777)))
+      '(Vector Integer Integer Integer Integer Integer Integer Integer))))
+   (Int 5)))))))))
+
+
 ;; ------------------------------------------------------------------------
+;; explicate-control
 
-;; explicate-control 思路
 
+;; block块列表
 (define basic-blocks '())
-
+;; 添加block块
 (define (create-block tail)
   (match tail
     [(Goto label) (Goto label)]
@@ -408,9 +1383,20 @@
        (set! basic-blocks (cons (cons label tail) basic-blocks))
        (Goto label))]))
 
-;;------------
-(define Explicate-CFG '())
+#;(define (create-block tail)
+  (delay
+    ;; 获取真正的值
+    (define t (force tail))
+    (match t
+      [(Goto label) t]
+      [else
+       (let ([label (gensym 'block)])
+         (set! basic-blocks (cons (cons label tail) basic-blocks))
+         (Goto label))])))
+    
 
+(define Explicate-CFG '())
+;; 添加block块
 (define (add-to-cfg t)
   (define new-label (gensym "l"))
   (set! Explicate-CFG (cons (cons new-label t) Explicate-CFG))
@@ -516,6 +1502,195 @@
         (cons (cons 'locals vars) info)
         (cons (cons 'start tail) Explicate-CFG)))]
     ))
+
+
+;; conditional.rkt
+(define (arg? e)
+  (match e
+    [(or (Var _) (Int _) (Bool _))
+     #t]
+    [else #f]))
+
+;; add-node 和 block->goto 共同构成了现在的create-block
+;(define/public (add-node block)
+;  (let ([label (gensym 'block)])
+;    (set! control-flow-graph (cons (cons label block)
+;                                   control-flow-graph))
+;    ;; dictify this
+;    label))
+;
+;(define/public (block->goto block)
+;  (delay
+;    (define b (force block))
+;    (match b
+;      [(Goto label) (Goto label)]
+;      [else (Goto (add-node b))])))
+;
+;(define/override (basic-exp? e)
+;  (match e
+;    [(Bool b) #t]
+;    [else (super basic-exp? e)]))
+;
+;(define/override (explicate-tail e)
+;  (copious "explicate-tail" e)
+;  (match e
+;    [(If cnd thn els)
+;     (explicate-pred cnd (explicate-tail thn) (explicate-tail els))]
+;    [else (super explicate-tail e)]))
+;
+;;; explicate-assign: exp -> var -> tail -> tail
+;;; side effect: adds nodes to the CFG
+;(define/override (explicate-assign e x cont-block)
+;  (match e
+;    [(If cnd thn els)
+;     (define cont (block->goto cont-block))
+;     (explicate-pred cnd (explicate-assign thn x cont)
+;                     (explicate-assign els x cont))]
+;    [else (super explicate-assign e x cont-block)]))
+
+;; precondition: cnd is atomic
+;; 对cnd是t的特殊情况进行处理
+;(define/public (generic-explicate-pred cnd thn-block els-block)
+;  (IfStmt (Prim 'eq? (list cnd (Bool #t)))
+;          (force (block->goto thn-block))
+;          (force (block->goto els-block))))
+
+;; (force (create-block thn-block))
+;; (force (create-block els-block))
+
+;;;48.32分
+;;; explicate-pred: exp * tail * tail -> tail
+;;; side effect: adds nodes to the CFG
+;;; 问题：什么时候加delay，什么时候不加delay
+;(define/public (explicate-pred cnd thn-block els-block)
+;  (match cnd
+;    [(Var x)
+;     (delay (generic-explicate-pred cnd thn-block els-block))]
+;    [(Bool #t)
+;     thn-block]
+;    [(Bool #f)
+;     els-blcok]
+;    [(Prim 'not (list e))
+;     (explicate-pred e els-block thn-block)]
+;    [(Prim op arg*)
+;     #:when (set-member? (comparison-ops) op)
+;     (delay (IfStmt (Prim op arg*)
+;                    (force (block->goto thn-block))
+;                    (force (block->goto els-block))))]
+;    [(Lex x rhs body)
+;     (define body-block (explicate-pred body thn-block els-block))
+;     (explicate-assign rhs x body-block)]
+;    [(If cnd thn els)
+;     (define thn-goto (block->goto thn-block))
+;     (define els-goto (block->goto els-block))
+;     (define new-thn (explicate-pred thn thn-goto els-goto))
+;     (define new-els (explicate-pred els thn-goto els-goto))
+;     (explicate-pred cnd new-thn new-els)]
+;    [else
+;     (error "error" cnd)]))
+;
+;(define/override (explicate-control p)
+;  (match p
+;    [(Program info body)
+;     (set! control-flow-graph '())
+;     (define body-block (force (explicate-tail body)))
+;     (Program info (CFG (dict-set control-flow-graph 'start body-block)))]))
+
+
+;; Lint.rkt
+
+;;  (delay (Return e))]
+;; [(Let x rhs body)
+;;  (explicate-assign ths x (explicate-tail body))]
+;; [else (error "error" e)]))
+
+;(define/public (explicate-assign e x cont-block)
+;  (match e
+;    [(? basic-exp?)
+;     (delay (Seq (Assign (Var x) e) (force cont-block)))]
+;    [(Let y rhs body)
+;     (define new-body (explicate-assign body x cont-block))
+;     (explicate-assign rhs y new-body)]
+;    [else (error "error" e)]))
+;
+;(define/public (explicate-control p)
+;  (match p
+;    [(Program info body)
+;     (define new-body (force (explicate-tail body)))
+;     (Program info (CFG (list (cons 'start new-body))))]))
+
+
+;; functions.rkt   
+;(define/override (basic-exp? e)
+;  (match e
+;    [(FunRef label n) #t]
+;    [else (super basic-exp? e)]))
+;
+;(define/public (basic-exp? e)
+;  (match e
+;    [(or (Var _) (Int _)) #t]
+;    [(Prim op arg*) #t]
+;    [else #f]))
+
+(define/override (explicate-assign e x cont-block)
+  (match e
+    [(Apply f arg*)
+     (delay (Seq (Assign (Var x) (Call f arg*))
+                 (force cont-block)))]
+    [else
+     (super explicate-assign e x cont-block)]))
+
+(define/public (explicate-assign e x cont-block)
+  (match e
+    [(? basic-exp?)
+     (delay (Seq (Assign (Var x) e) (force cont-block)))
+     [(Let y rhs body)
+      (define new-body (explicate-assign body x cont-block))
+      (explicate-assign rhs y new-body)]
+     [else
+      (error "error " e)]]))
+
+(define/override (explicate-tail e)
+  (match e
+    [(Apply f arg*)
+     (delay (TailCall f arg*))]
+    [else
+     (super explicate-tail e)]))
+
+(define/public (explicate-tail e)
+  (match e
+    [(? basic-exp?)
+     (delay (Return e))]
+    [(Let x rhs body)
+     (explicate-assign rhs x (explicate-tail body))]
+    [else
+     (error "explicate-tail error" e)]))
+
+(define/override (explicate-pred cnd thn-block els-block)
+  (match cnd
+    [(Apply f arg*)
+     (define tmp (gensym 'tmp))
+     (delay (Seq (Assign (Var tmp) (Call f arg*))
+                 (IfStmt (Prim 'eq? (list (Var tmp) (Bool #t)))
+                         (force (block->goto thn-block))
+                         (force (block->goto els-block)))))]
+    [else
+     (super explicate-pred cnd thn-block els-block)]))
+
+(define/public (explicate-control-def d)
+  (match d
+    [(Def f params ty info body)
+     (set! control-flow-graph '())
+     (define body-block (force (explicate-tail body)))
+     (define new-CFG (dict-set control-flow-graph (symbol-append f 'start)
+                               body-block))
+     (Def f params ty info new-CFG)]))
+
+(define/override (explicate-control p)
+  (match p
+    [(ProgramDefs info ds)
+     (define new-ds (for/list ([d ds]) (explicate-control-def d)))
+     (ProgramDefs info new-ds)]))
 
 
 ;;------------------------------------------------------------------------
@@ -651,6 +1826,8 @@
      racket-cfg)
 
 ;;------------------------------------
+;; select instructions
+;; 52
 
 (define (sel-ins-atm c0a)
   (match c0a
@@ -741,10 +1918,40 @@
 
 ;; We then initialize the tag and finally copy the address in r11 to the left-hand side
 ;; 结果为分配地址的首地址
+;
+;(define/override (select-instr-tail t)
+;  (match t
+;    [(TailCall f es)
+;     (unless (<= (length es) (vector-length arg-registers))
+;       (error "error arg params"))
+;     (define new-f (select-instr-arg f))
+;     (define new-es (for/list ([e es]) (select-instr-arg e)))
+;     (append (for/list ([arg new-es] [r arg-registers])
+;               (Instr 'movq (list arg (Reg r))))
+;             (list (TailJmp new-f (length es))))]
+;    [(Retrun e)
+;     (define ret-label (symbol-append (function-name) 'conclusion))
+;     (append (select-instr-stmt (Assign (Reg 'rax) e))
+;             (list (Jmp ret-label)))]
+;    [else
+;     (super select-instr-tail t)]))
+;
+;(define/override (select-instr-stmt e)
+;  (verbose "select-instr-stmt" e)
+;  (match e
+;    [(Assign lhs (FunRef f n))
+;     (define new-lhs (select-instr-arg lhs))
+;     (list (Instr 'leaq (list (FunRef f n) new-lhs)))]
+;    [(Assign lhs (Call f es))
+;     (unless (<= (length es) (vector-length arg-registers))
+;       (error "select-instr-stmt: more arguments than arg-registers"))
+;     (define new-lhs (select-instr-arg lhs))
+;     (define new-f (...........
+
+     
 
 ;;==============================================================
 ;; live --- interference --- color
-;; 47 minutes
 ;; uncover-live: live-after -> pseudo-x86 -> pseudo-x86*
 ;; *annotated program with live-after information for each stmt
 
@@ -1402,11 +2609,13 @@
 ;; Note that your compiler file (the file that defines the passes)
 ;; must be named "compiler.rkt"
 (define compiler-passes
-  `( ("shrink" ,shrink ,interp-Lwhile ,type-check-Lwhile)
-     ("uniquify" ,uniquify ,interp-Lwhile ,type-check-Lwhile)
-     ("uncover-get!" ,uncover-get! ,interp-Lwhile ,type-check-Lwhile)
+  `( ("shrink" ,shrink ,interp-Lfun ,type-check-Lfun)
+     ("uniquify" ,uniquify ,interp-Lfun ,type-check-Lfun)
+     ("reveal-functions" ,reveal-functions ,interp-Lfun ,type-check-Lfun)
+     ("limit-functions" ,limit-functions ,interp-Lfun ,type-check-Lfun)
+     ("expose-allocation" ,expose-allocation ,interp-Lfun ,type-check-Lfun)
      ;; Uncomment the following passes as you finish them.
-     ("remove complex opera*" ,remove-complex-opera* ,interp-Lwhile ,type-check-Lwhile)
+     ;;("remove complex opera*" ,remove-complex-opera* ,interp-Lwhile ,type-check-Lwhile)
      ;;("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
      ;;("optimize jumps" ,optimize-jumps ,interp-Cif ,type-check-Cif)
      ;;("instruction selection" ,select-instructions ,interp-x86-1)

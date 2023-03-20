@@ -32,29 +32,29 @@
         [(other wise)
          (super type-equal? t1 t2)]))
     
+    (define/public (type-check-apply env e es)
+      (define-values (e^ ty) ((type-check-exp env) e))
+      (define-values (e* ty*) (for/lists (e* ty*) ([e (in-list es)])
+                                ((type-check-exp env) e)))
+      (match ty
+        [`(,ty^* ... -> ,rt) ;; 函数类型
+         (for ([arg-ty ty*] [param-ty ty^*])
+           (check-type-equal? arg-ty param-ty (Apply e es)))
+         (values e^ e* rt)]
+        [else
+         (error 'type-check "expected a function, not ~a" ty)]))
+
 ;    (define/public (type-check-apply env e es)
 ;      (define-values (e^ ty) ((type-check-exp env) e))
-;      (define-values (e* ty*) (for/lists (e* ty*) ([e (in-list es)])
+;      (define-values (e*1 ty*1) (for/lists (e* ty*) ([e (in-list es)])
 ;                                ((type-check-exp env) e)))
 ;      (match ty
 ;        [`(,ty^* ... -> ,rt)
-;         (for ([arg-ty ty*] [param-ty ty^*])
+;         (for ([arg-ty ty*1] [param-ty ty^*])
 ;           (check-type-equal? arg-ty param-ty (Apply e es)))
-;         (values e^ e* rt)]
+;         (values e^ e*1 rt)]
 ;        [else
 ;         (error 'type-check "expected a function, not ~a" ty)]))
-
-    (define/public (type-check-apply env e es)
-      (define-values (e^ ty) ((type-check-exp env) e))
-      (define-values (e*1 ty*1) (for/lists (e* ty*) ([e (in-list es)])
-                                ((type-check-exp env) e)))
-      (match ty
-        [`(,ty^* ... -> ,rt)
-         (for ([arg-ty ty*1] [param-ty ty^*])
-           (check-type-equal? arg-ty param-ty (Apply e es)))
-         (values e^ e*1 rt)]
-        [else
-         (error 'type-check "expected a function, not ~a" ty)]))
 
     
 
@@ -120,32 +120,32 @@
 (define (type-check-Lfun p)
   (send (new type-check-Lfun-class) type-check-program p))
 
-(type-check-Lfun
- (ProgramDefsExp
- '()
- (list
-  (Def
-   'map
-   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
-   '(Vector Integer Integer)
-   '()
-   (HasType
-    (Prim
-     'vector
-     (list
-      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
-      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
-    '(Vector Integer Integer)))
-  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
- (Prim
-  'vector-ref
-  (list
-   (Apply
-    (Var 'map)
-    (list
-     (Var 'inc)
-     (HasType
-      (Prim 'vector (list (Int 0) (Int 41)))
-      '(Vector Integer Integer))))
-   (Int 1)))))
+;(type-check-Lfun
+; (ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'map
+;   '((f : (Integer -> Integer)) (v : (Vector Integer Integer)))
+;   '(Vector Integer Integer)
+;   '()
+;   (HasType
+;    (Prim
+;     'vector
+;     (list
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 0)))))
+;      (Apply (Var 'f) (list (Prim 'vector-ref (list (Var 'v) (Int 1)))))))
+;    '(Vector Integer Integer)))
+;  (Def 'inc '((x : Integer)) 'Integer '() (Prim '+ (list (Var 'x) (Int 1)))))
+; (Prim
+;  'vector-ref
+;  (list
+;   (Apply
+;    (Var 'map)
+;    (list
+;     (Var 'inc)
+;     (HasType
+;      (Prim 'vector (list (Int 0) (Int 41)))
+;      '(Vector Integer Integer))))
+;   (Int 1)))))
 
