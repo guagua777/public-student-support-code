@@ -1422,6 +1422,8 @@
     ; ...]
     ;[(GlobalValue ...)]
     ;[(Collect ...)]
+    [(Apply f arg*)
+     (values (TailCall f arg*) '())]
     ))
 
 (define (explicate-assign exp var tail)
@@ -1440,47 +1442,114 @@
                    [(els-tail vars2) (explicate-assign els var (Goto label))]
                    [(cnd-tail vars3) (explicate-pred cnd thn-tail els-tail)])
        ;; 注意变量顺序
-       (values cnd-tail (append vars3 vars1 vars2)))]))
-
-(define (explicate-pred e tail1 tail2)
-  (match e
-    [(Bool bool) (if bool (values tail1 '()) (values tail2 '()))]
-    [(Var v)
-     (define label1 (add-to-cfg tail1))
-     (define label2 (add-to-cfg tail2))
-     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t))) 
-                     (Goto label1) (Goto label2)) 
-             '())]
-    [(Prim rator (list exp1 exp2))
-     (define label1 (add-to-cfg tail1))
-     (define label2 (add-to-cfg tail2))
-     (define atm1 (gensym "rator-1-"))
-     (define atm2 (gensym "rator-2-"))
-     (let*-values ([(atm2-tail vars2) (explicate-assign exp2 atm2 (IfStmt (Prim rator (list (Var atm1) (Var atm2))) (Goto label1) (Goto label2)))]
-                    [(atm1-tail vars1) (explicate-assign exp1 atm1 atm2-tail)])
-        (values atm1-tail (cons atm1 (cons atm2 (append vars1 vars2)))))]
-    [(Prim 'not (list exp))
-     (define label1 (add-to-cfg tail1))
-     (define label2 (add-to-cfg tail2))
-     (values (IfStmt (Prim 'eq? (list exp (Bool #t))) (Goto label2) (Goto label1)) '())]
-    [(Let var exp body)
-      (define label1 (add-to-cfg tail1))
-      (define label2 (add-to-cfg tail2))
-      (define t (gensym "let-ec-"))
-      (let*-values ([(body-tail vars1) (explicate-assign body t (IfStmt (Prim 'eq? (list (Var t) (Bool #t))) (Goto label1) (Goto label2)))]
-                    [(exp-tail vars2) (explicate-assign exp var body-tail)])
-        (values exp-tail (cons t (cons var (append vars1 vars2)))))]
-    [(If cnd thn els)
-     (define label1 (add-to-cfg tail1))
-     (define label2 (add-to-cfg tail2))
-     (let*-values ([(thn-block vars2) (explicate-pred thn (Goto label1) (Goto label2))]
-                   [(els-block vars3) (explicate-pred els (Goto label1) (Goto label2))]
-                   [(thn-label) (add-to-cfg thn-block)]
-                   [(els-label) (add-to-cfg els-block)]
-                   [(result vars) (explicate-pred cnd (Goto thn-label) (Goto els-label))]
-                   )
-       (values result (append vars vars2 vars3)))]
+       (values cnd-tail (append vars3 vars1 vars2)))]
+    [(Apply f arg*)
+     (values (Seq (Assign (Var var) (Call f arg*)) tail) '())]
     ))
+
+;; 返回的是values
+;(define (explicate-pred e tail1 tail2)
+;  (match e
+;    [(Bool bool) (if bool (values tail1 '()) (values tail2 '()))]
+;    [(Var v)
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (values (IfStmt (Prim 'eq? (list (Var v) (Bool #t))) 
+;                     (Goto label1) (Goto label2)) 
+;             '())]
+;    [(Prim rator (list exp1 exp2))
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (define atm1 (gensym "rator-1-"))
+;     (define atm2 (gensym "rator-2-"))
+;     (let*-values ([(atm2-tail vars2) (explicate-assign exp2 atm2 (IfStmt (Prim rator (list (Var atm1) (Var atm2))) (Goto label1) (Goto label2)))]
+;                    [(atm1-tail vars1) (explicate-assign exp1 atm1 atm2-tail)])
+;        (values atm1-tail (cons atm1 (cons atm2 (append vars1 vars2)))))]
+;    [(Prim 'not (list exp))
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (values (IfStmt (Prim 'eq? (list exp (Bool #t))) (Goto label2) (Goto label1)) '())]
+;    [(Let var exp body)
+;      (define label1 (add-to-cfg tail1))
+;      (define label2 (add-to-cfg tail2))
+;      (define t (gensym "let-ec-"))
+;      (let*-values ([(body-tail vars1) (explicate-assign body t (IfStmt (Prim 'eq? (list (Var t) (Bool #t))) (Goto label1) (Goto label2)))]
+;                    [(exp-tail vars2) (explicate-assign exp var body-tail)])
+;        (values exp-tail (cons t (cons var (append vars1 vars2)))))]
+;    [(If cnd thn els)
+;     (define label1 (add-to-cfg tail1))
+;     (define label2 (add-to-cfg tail2))
+;     (let*-values ([(thn-block vars2) (explicate-pred thn (Goto label1) (Goto label2))]
+;                   [(els-block vars3) (explicate-pred els (Goto label1) (Goto label2))]
+;                   [(thn-label) (add-to-cfg thn-block)]
+;                   [(els-label) (add-to-cfg els-block)]
+;                   [(result vars) (explicate-pred cnd (Goto thn-label) (Goto els-label))]
+;                   )
+;       (values result (append vars vars2 vars3)))]
+;    ))
+
+
+;; 这个和上面的有什么区别，返回的是单个值
+(define (explicate-pred cnd thn-block els-block)
+  (match cnd
+    [(Apply f arg*)
+;     (if (f arg*)
+;         xxx
+;         yyy)
+     (define tmp (gensym 'tmp))
+     (Seq (Assign (Var tmp) (Call f arg*))
+          (IfStmt (Prim 'eq? (list (Var tmp) #t))
+                  (create-block thn-block)
+                  (create-block els-block)))]
+    [(Var x)
+     (generic-explicate-pred cnd thn-block els-block)]
+    [(Bool #t)
+     (create-block thn-block)]
+    [(Bool #f)
+     (create-block els-block)]
+    [(Prim 'not (list e))
+     (explicate-pred e els-block thn-block)]
+    [(Prim op arg*)
+     #:when (set-member? (comparison-ops) op)
+     (IfStmt (Prim op arg*)
+             (create-block thn-block)
+             (create-block els-block))]
+    [(Let x rhs body)
+;     (if (let ([x rhs])
+;           body)
+;         xxx
+;         yyy)
+     (define body-block (explicate-pred body thn-block els-block))
+     (explicate-assign rhs x body-block)]
+    [(If cnd thn els)
+;     (if (if cnd
+;             thn
+;             els)
+;         xxx
+;         yyy)
+     ;; 要生成4个block
+     ;; 这个是continuation,需要翻过来,所以先计算外面的,再计算里面的,然后把外面的放到里面,里面的放到外面
+     (define thn-goto (create-block thn-block))
+     (define els-goto (create-block els-block))
+     (define new-thn (explicate-pred thn thn-goto els-goto))
+     (define new-els (explicate-pred els thn-goto els-goto))
+     (explicate-pred cnd new-thn new-els)]
+    [else (error "explicate pred error")]))
+
+
+(define (generic-explicate-pred cnd thn-block els-block)
+  (IfStmt (Prim 'eq? (list cnd (Bool #t)))
+          (create-block thn-block)
+          (create-block els-block)))
+
+(define (explicate-control-def d)
+  (match d
+    [(Def f params ty info body)
+     (set! basic-blocks '())
+     (define b-block (explicate-tail body))
+     (define new-CFG (dict-set basic-blocks (symbol-append f 'start) ;;如果原来的symbol为'aaa,那么现在就变成了'aaastart
+                               b-block))
+     (Def f params ty info new-CFG)]))
 
 ;; 添加副作用 position
 ;(define (explicate-effect e tail)
@@ -1493,15 +1562,22 @@
 ;; 参考Ctup
 ;; 新添加的stmt变成Seq中的一部分
 ;; 新添加的exp变成Assign中的一部分
+;(define (explicate-control p)
+;  (set! Explicate-CFG '())
+;  (match p
+;    [(Program info e)
+;     (let-values ([(tail vars) (explicate-tail e)])
+;       (CProgram
+;        (cons (cons 'locals vars) info)
+;        (cons (cons 'start tail) Explicate-CFG)))]
+;    ))
+
+
 (define (explicate-control p)
-  (set! Explicate-CFG '())
   (match p
-    [(Program info e)
-     (let-values ([(tail vars) (explicate-tail e)])
-       (CProgram
-        (cons (cons 'locals vars) info)
-        (cons (cons 'start tail) Explicate-CFG)))]
-    ))
+    [(ProgramDefs info ds)
+     (define new-ds (for/list ([d ds]) (explicate-control-def d)))
+     (ProgramDefs info new-ds)]))
 
 
 ;; conditional.rkt
@@ -1518,14 +1594,14 @@
 ;                                   control-flow-graph))
 ;    ;; dictify this
 ;    label))
-;
+
 ;(define/public (block->goto block)
 ;  (delay
 ;    (define b (force block))
 ;    (match b
 ;      [(Goto label) (Goto label)]
 ;      [else (Goto (add-node b))])))
-;
+
 ;(define/override (basic-exp? e)
 ;  (match e
 ;    [(Bool b) #t]
@@ -1616,7 +1692,7 @@
 ;(define/public (explicate-control p)
 ;  (match p
 ;    [(Program info body)
-;     (define new-body (force (explicate-tail body)))
+;     (define new-body (force (explicate-tail body))) ;; 真正使用的时候添加force
 ;     (Program info (CFG (list (cons 'start new-body))))]))
 
 
@@ -1632,65 +1708,87 @@
 ;    [(Prim op arg*) #t]
 ;    [else #f]))
 
-(define/override (explicate-assign e x cont-block)
-  (match e
-    [(Apply f arg*)
-     (delay (Seq (Assign (Var x) (Call f arg*))
-                 (force cont-block)))]
-    [else
-     (super explicate-assign e x cont-block)]))
+;(define/override (explicate-assign e x cont-block)
+;  (match e
+;    [(Apply f arg*)
+;     (delay (Seq (Assign (Var x) (Call f arg*))
+;                 (force cont-block)))]
+;    [else
+;     (super explicate-assign e x cont-block)]))
+;
+;(define/public (explicate-assign e x cont-block)
+;  (match e
+;    [(? basic-exp?)
+;     (delay (Seq (Assign (Var x) e) (force cont-block)))
+;     [(Let y rhs body)
+;      (define new-body (explicate-assign body x cont-block))
+;      (explicate-assign rhs y new-body)]
+;     [else
+;      (error "error " e)]]))
 
-(define/public (explicate-assign e x cont-block)
-  (match e
-    [(? basic-exp?)
-     (delay (Seq (Assign (Var x) e) (force cont-block)))
-     [(Let y rhs body)
-      (define new-body (explicate-assign body x cont-block))
-      (explicate-assign rhs y new-body)]
-     [else
-      (error "error " e)]]))
+;(define/override (explicate-tail e)
+;  (match e
+;    [(Apply f arg*)
+;     (delay (TailCall f arg*))]
+;    [else
+;     (super explicate-tail e)]))
+;
+;(define/public (explicate-tail e)
+;  (match e
+;    [(? basic-exp?)
+;     (delay (Return e))]
+;    [(Let x rhs body)
+;     (explicate-assign rhs x (explicate-tail body))]
+;    [else
+;     (error "explicate-tail error" e)]))
 
-(define/override (explicate-tail e)
-  (match e
-    [(Apply f arg*)
-     (delay (TailCall f arg*))]
-    [else
-     (super explicate-tail e)]))
+;(if (f a b ...)
+;    xxx
+;    yyy)
+;=>
+;tmp = (f arg*)
+;if tmp
+;   xxx
+;   yyy
+;(define/override (explicate-pred cnd thn-block els-block)
+;  (match cnd
+;    [(Apply f arg*)
+;     (define tmp (gensym 'tmp))
+;     (delay (Seq (Assign (Var tmp) (Call f arg*))
+;                 (IfStmt (Prim 'eq? (list (Var tmp) (Bool #t)))
+;                         (force (block->goto thn-block)) ;; (force (create-block thn-block))
+;                         (force (block->goto els-block)))))]
+;    [else
+;     (super explicate-pred cnd thn-block els-block)]))
 
-(define/public (explicate-tail e)
-  (match e
-    [(? basic-exp?)
-     (delay (Return e))]
-    [(Let x rhs body)
-     (explicate-assign rhs x (explicate-tail body))]
-    [else
-     (error "explicate-tail error" e)]))
+;(define/public (explicate-control-def d)
+;  (match d
+;    [(Def f params ty info body)
+;     (set! control-flow-graph '())
+;     (define body-block (force (explicate-tail body)))
+;     (define new-CFG (dict-set control-flow-graph (symbol-append f 'start) ;;如果原来的symbol为'aaa，那么现在就变成了'aaastart
+;                               body-block))
+;     (Def f params ty info new-CFG)]))
 
-(define/override (explicate-pred cnd thn-block els-block)
-  (match cnd
-    [(Apply f arg*)
-     (define tmp (gensym 'tmp))
-     (delay (Seq (Assign (Var tmp) (Call f arg*))
-                 (IfStmt (Prim 'eq? (list (Var tmp) (Bool #t)))
-                         (force (block->goto thn-block))
-                         (force (block->goto els-block)))))]
-    [else
-     (super explicate-pred cnd thn-block els-block)]))
+;(define/override (explicate-control p)
+;  (match p
+;    [(ProgramDefs info ds)
+;     (define new-ds (for/list ([d ds]) (explicate-control-def d)))
+;     (ProgramDefs info new-ds)]))
 
-(define/public (explicate-control-def d)
-  (match d
-    [(Def f params ty info body)
-     (set! control-flow-graph '())
-     (define body-block (force (explicate-tail body)))
-     (define new-CFG (dict-set control-flow-graph (symbol-append f 'start)
-                               body-block))
-     (Def f params ty info new-CFG)]))
+(define symbol-append
+  (lambda (s1 s2)
+    (string->symbol (string-append (symbol->string s1) s2))))
 
-(define/override (explicate-control p)
-  (match p
-    [(ProgramDefs info ds)
-     (define new-ds (for/list ([d ds]) (explicate-control-def d)))
-     (ProgramDefs info new-ds)]))
+(define comparison-ops
+  (lambda ()
+    (set '< '<= '.....)))
+    
+  
+
+;; explicate-control
+;; delay force在什么地方使用
+;; 创建的时候delay，使用的时候force
 
 
 ;;------------------------------------------------------------------------
@@ -1918,36 +2016,95 @@
 
 ;; We then initialize the tag and finally copy the address in r11 to the left-hand side
 ;; 结果为分配地址的首地址
-;
-;(define/override (select-instr-tail t)
-;  (match t
-;    [(TailCall f es)
-;     (unless (<= (length es) (vector-length arg-registers))
-;       (error "error arg params"))
-;     (define new-f (select-instr-arg f))
-;     (define new-es (for/list ([e es]) (select-instr-arg e)))
-;     (append (for/list ([arg new-es] [r arg-registers])
-;               (Instr 'movq (list arg (Reg r))))
-;             (list (TailJmp new-f (length es))))]
-;    [(Retrun e)
-;     (define ret-label (symbol-append (function-name) 'conclusion))
-;     (append (select-instr-stmt (Assign (Reg 'rax) e))
-;             (list (Jmp ret-label)))]
-;    [else
-;     (super select-instr-tail t)]))
-;
-;(define/override (select-instr-stmt e)
-;  (verbose "select-instr-stmt" e)
-;  (match e
-;    [(Assign lhs (FunRef f n))
-;     (define new-lhs (select-instr-arg lhs))
-;     (list (Instr 'leaq (list (FunRef f n) new-lhs)))]
-;    [(Assign lhs (Call f es))
-;     (unless (<= (length es) (vector-length arg-registers))
-;       (error "select-instr-stmt: more arguments than arg-registers"))
-;     (define new-lhs (select-instr-arg lhs))
-;     (define new-f (...........
 
+
+;; load-effectiveaddress
+;; instruction-pointer-relative addressing
+;; That is, the arguments are passed in registers. We recommend turning the parameters into local variables
+
+
+;; Lfun.rkt
+;; 52.30
+(define/override (select-instr-tail t)
+  (match t
+    [(TailCall f es)
+     (unless (<= (length es) (vector-length arg-registers))
+       (error "error arg params"))
+     (define new-f (select-instr-arg f))
+     (define new-es (for/list ([e es]) (select-instr-arg e)))
+     (append (for/list ([arg new-es] [r arg-registers])
+               (Instr 'movq (list arg (Reg r))))
+             (list (TailJmp new-f (length es))))] ;; TailJmp包含参数个数
+    [(Retrun e)
+     (define ret-label (symbol-append (function-name) 'conclusion))
+     (append (select-instr-stmt (Assign (Reg 'rax) e))
+             (list (Jmp ret-label)))]
+    [else
+     (super select-instr-tail t)]))
+
+(define/override (select-instr-stmt e)
+  (verbose "select-instr-stmt" e)
+  (match e
+    [(Assign lhs (FunRef f n))
+     (define new-lhs (select-instr-arg lhs))
+     (list (Instr 'leaq (list (FunRef f n) new-lhs)))]
+    [(Assign lhs (Call f es))
+     (unless (<= (length es) (vector-length arg-registers))
+       (error "select-instr-stmt: more arguments than arg-registers"))
+     (define new-lhs (select-instr-arg lhs))
+     (define new-f (select-instr-arg f))
+     (define new-es (for/list ([e es]) (select-instr-arg e)))
+     (append (for/list ([arg new-es] [r arg-registers])
+               (Instr 'movq (list arg (Reg r))))
+             (list (IndirectCallq new-f (length es))
+                   (Instr 'movq (list (Reg 'rax) new-lhs))))]
+    [else
+     (super select-instr-stmt e)]))
+
+;; https://beautifulracket.com/explainer/parameters.html
+
+;> (define h #hash((a . "apple") (b . "banana")))
+;> (for/list ([(k v) (in-dict h)])
+;    (format "~a = ~s" k v))
+;'("b = \"banana\"" "a = \"apple\"")
+
+(define/public (select-instr-def d)
+  (match d
+    [(Def f (list `[,xs : ,ps] ...) rt info CFG) ;; CFG为block块
+     (unless (<= (length xs) (vector-length arg-registers))
+       (error "def error"))
+     (define new-CFG
+       (parameterize ([function-name f])
+         (for/list ([(label tail) (in-dict CFG)])
+           (cons label (Block '() (select-instr-tail tail))))))
+     (define param-moves
+       (for/list ([param xs] [r arg-registers])
+         (Instr 'movq (list (Reg r) (Var param)))))
+     (define start-label (symbol-append f 'start))
+     (define new-start
+       (match (dict-ref new-CFG start-label)
+         [(Block info ss)
+          (Block info (append param-moves ss))]
+         [else
+          (error "select instr def error")]))
+     (define newer-CFG (dict-set new-CFG start-label new-start))
+     (define new-info
+       (dict-set-all
+        info ;; parameters become locals
+        `((locals-types . ,(append (map cons xs ps)
+                                   (dict-ref info 'locals-types)))
+          (num-params . ,(length xs)))))
+     (Def f '() 'Integer new-info newer-CFG)]
+    [else
+     (error "select instr def " d)]))
+
+(define/override (select-instructions e)
+  (match e
+    [(ProgramDefs info ds)
+     (define new-ds (for/list ([d ds]) (select-instr-def d)))
+     (ProgramDefs info new-ds)]
+    [else
+     (super select-instructions e)]))
      
 
 ;;==============================================================
@@ -2029,8 +2186,6 @@
      (error "R1-reg/uncover-live-block unhandled" ast)]))
 
 
-;;--------------------------------
-
 (define (adjacent-instr s)
   (match s
     [(Jmp label)
@@ -2086,6 +2241,49 @@
     ))
 
 
+;; Lfun.rkt
+;; 5757
+;(define/override (free-vars a)
+;  (match a
+;    [(FunRef f n) (FunRef f n)]
+;    [else
+;     (super free-vars a)]))
+;
+;(define/override (read-vars instr)
+;  (match instr
+;    [(Instr 'leaq (list s d))
+;     (free-vars s)]
+;    [(IndirectCallq arg n)
+;     (set-union (free-vars arg)
+;                (vector->set (vector-take arg-registers n)))]
+;    [(TailJmp arg n)
+;     (set-union (free-vars arg)
+;                (vector->set (vector-take arg-registers n)))]
+;    [else
+;     (super read-vars instr)]))
+;
+;(define/override (write-vars instr)
+;  (match instr
+;    [(IndirectCallq f n)
+;     (caller-save-for-alloc)]
+;    [(TailJmp f n)
+;     (caller-save-for-alloc)]
+;    [(Instr 'leaq (list s d))
+;     (free-vars d)]
+;    [else
+;     (super write-vars instr)]))
+;
+;(define/public (uncover-live-def ast)
+;  (match ast
+;    [(Def f '() rt info CFG)
+;     (Def f '() rt info (uncover-live-CFG CFG))]))
+;
+;(define/override (uncover-live ast)
+;  (match ast
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (uncover-live-def d)))]
+;    [else
+;     (error "uncover live error")]))
 
 
 ;;======================================================================
@@ -2158,8 +2356,6 @@
      (X86Program new-info new-Blocks)]))
 
 
-
-
 (define interference-test
   (lambda (ast)
     (match ast
@@ -2171,6 +2367,58 @@
          (for/list ([(label block) (in-dict Blocks)])
            (cons label block)))
        (printf "new blocks is ~a \n" new-Blocks)])))
+
+
+;; Lfun.rkt
+;; 1.07.57
+
+;(define/override (build-interference-instr live-after G loc-types)
+;  (lambda (ast)
+;    (match ast
+;      [(Callq f _)
+;       ;; The function might  call collect.
+;       (for ([v live-after])
+;         (cond
+;           [(and (not (set-member? registers v))
+;                 (root-type? (dict-ref loc-types v)))
+;            (for ([u (callee-save-for-alloc)])
+;              (add-edge! G u v))]))
+;       ((super build-interference-instr live-after G loc-types) ast)]
+;      [(IndirectCallq arg _)
+;       ;; the function might all collect
+;       (for ([v live-after])
+;         (cond
+;           [(and (not (set-member? registers v))
+;                 (root-type? (dict-ref loc-types v)))
+;            (for ([u (callee-save-for-alloc)])
+;              (add-edge! G u v))]))
+;       ((super build-interference-instr live-after G loc-types) ast)]
+;      [else
+;       ((super build-interference-instr live-after G loc-types) ast)])))
+;
+;(define/public (build-interference-def d)
+;  (match d
+;    [(Def f '() rt info CFG)
+;     (define loc-types (lookup 'locals-types info))
+;     (define IG (undirected-graph '()))
+;     (for ([v (dict-keys loc-types)])
+;       (add-vertex! IG v))
+;     (define new-CFG
+;       (for/list ([(label block) (in-dict CFG)])
+;         (cons label ((build-interference-block IG loc-types) block))))
+;     (print-dot IG (format "./~s-interference.dot" f))
+;     (define new-info (dict-set info 'conflicts IG))
+;     (Def f '() rt new-info new-CFG)]
+;    [else
+;     (error "" d)]))
+;
+;(define/override (build-interference ast)
+;  (match ast
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds])
+;                         (build-interference-def d)))]
+;    [else
+;     (error "")]))
 
 
 ;;====================================================
@@ -2216,6 +2464,53 @@
          (cons label (build-move-block block MG))))
      (define new-info (dict-set info 'move-graph MG))
      (X86Program new-info new-Blocks)]))
+
+
+;;Lfun.rkt
+;(define/public (build-move-graph-def d)
+;  (match d
+;    [(Def f '() rt info CFG)
+;     (define MG (undirected-graph '()))
+;     (for ([v (dict-keys (dict-ref info 'locals-types))])
+;       (add-vertex! MG v))
+;     (define new-CFG
+;       (for/list ([(label block) (in-dict CFG)])
+;         (cons label (build-move-block block MG))))
+;     (print-dot MG (format "./~s-move.dot" f))
+;     (define new-info (dict-set info 'move-graph MG))
+;     (Def f '() rt new-info new-CFG)]))
+;
+;(define/override (build-move-graph ast)
+;  (match ast
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (build-move-graph-def d)))]
+;    [else
+;     (error "error" ast)])) 
+     
+;;---------------------------------------------------------
+;; assign homes
+
+;(define/override (instructions)
+;  (set-union (super instructions)
+;             (set 'leaq)))
+;
+;(define/override (assign-homes-imm homes)
+;  (lambda (e)
+;    (match e
+;      [(FunRef f n)
+;       (FunRef f n)]
+;      [else
+;       ((super assign-homes-imm homes) e)])))
+;
+;(define/override (assign-homes-instr homes)
+;  (lambda (e)
+;    (match e
+;      [(IndirectCallq f n)
+;       (IndirectCallq ((assign-homes-imm homes) f) n)]
+;      [(TailJmp f n)
+;       (TailJmp ((assign-homes-imm homes) f) n)]
+;      [else
+;       ((super assign-homes-instr homes) e)])))
 
 
 ;; =======================================================
@@ -2423,6 +2718,39 @@
 ;                       (generate-assignments (cdr locals) colors))])]))
 
 
+;; register-allocate.rkt
+;; 1.11.40  
+
+;(define/public (used-callee-reg locals color)
+;  (for/set ([x locals] #:when (callee-color? (hash-ref color x)))
+;    (color->register (hash-ref color x))))
+;
+;(define/public (num-used-callee locals color)
+;  (set-count (used-callee-reg locals color)))
+;
+;(define/public (allocate-registers ast)
+;  (match ast
+;    [(Program info (CFG G))
+;     (define locals (dict-keys (dict-ref info 'locals-types)))
+;     (define IG (dict-ref info 'conflicts))
+;     (define MG (dict-ref info 'move-graph))
+;     (define-values (color num-spills) (color-graph IG MG info))
+;     (define homes
+;       (for/hash ([x locals])
+;         (define home (identify-home (num-used-callee locals color)
+;                                     (hash-ref color x)))
+;         ...))]))
+
+;; Lfun.rkt
+;; 1.14.31
+
+;(define/public (allocate-registers-def d)
+;  (match d
+;    [(Def f '() rt info CFG)
+;     (define locals (dict-keys (dict-ref info 'locals-types)))
+;     ...]))
+
+
 ;; ------------------------------------------------------------------
 
 ;; curr-block为label
@@ -2466,6 +2794,22 @@
            (void)))
      ;;(display new-blocks)
      (X86Program info new-blocks)]))
+
+
+
+;; Lfun.rkt
+;(define/public (remove-jumps-def ast)
+;  (match ast
+;    [(Def f '() rt info CFG)
+;     (Def f '() rt info (remove-jumps-CFG f CFG))]))
+;
+;(define/override (remove-jumps ast)
+;  (match ast
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (remove-jumps-def d)))]
+;    [else
+;     (error "")]))
+  
 
 
 
