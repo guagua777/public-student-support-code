@@ -14,13 +14,16 @@
 (require "interp-Cvecof.rkt")
 (require "interp-Lfun.rkt")
 (require "interp-Cfun.rkt")
+(require "interp-Llambda.rkt")
+(require "interp-Clambda.rkt")
 (require "interp.rkt")
 (require "type-check-Lif.rkt")
 (require "type-check-Lwhile.rkt")
 (require "type-check-Lvec.rkt")
 (require "type-check-Lvecof.rkt")
 (require "type-check-Lfun.rkt")
-(require "compiler.rkt")
+(require "type-check-Llambda.rkt")
+;(require "compiler.rkt")
 (debug-level 1)
 ;(AST-output-syntax 'concrete-syntax)
 
@@ -50,7 +53,10 @@
 ;(interp-tests "vector" type-check-Lvec '() interp-Lvec "vectors_test" (tests-for "vectors"))
 ;(interp-tests "vector" type-check-Lvec compiler-passes interp-Lvec "vectors_test" (tests-for "vectors"))
 
-(interp-tests "function" type-check-Lfun '() interp-Lfun "functions_test" (tests-for "functions"))
+;(interp-tests "function" type-check-Lfun '() interp-Lfun "functions_test" (tests-for "functions"))
+;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
+
+(interp-tests "lambda" type-check-Llambda '() interp-Llambda "lambda_test" (tests-for "lambda"))
 ;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
 
 ;; Uncomment the following when all the passes are complete to

@@ -73,3 +73,46 @@
 
 (define (type-check-Llambda p)
   (send (new type-check-Llambda-class) type-check-program p))
+
+
+(type-check-Llambda
+ (ProgramDefsExp
+ '()
+ (list
+  (Def
+   'f
+   '((x : Integer))
+   '(Integer -> Integer)
+   '()
+   (Let
+    'y
+    (Int 4)
+    (Lambda
+     '((z : Integer))
+     'Integer
+     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+ (Let
+  'g
+  (Apply (Var 'f) (list (Int 5)))
+  (Let
+   'h
+   (Apply (Var 'f) (list (Int 3)))
+   (Prim
+    '+
+    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
+
+
+;; 分支步骤
+;; 第一步，获取Def的类型，并放入环境中，函数名->函数类型
+;; 函数名为f，函数类型为(Integer -> (Integer -> Integer)) 输入是一个整形，返回值为一个函数，并放入环境中
+;; 第二步，检查Def的类型，参数名和对应的类型，放入环境中，x->Integer
+;; 第三步，检查Def中body的类型，body为一个Let，y->Integer，并放入环境中，检查let的body，也就是Lambda
+;; 第四步，检查Lambda的类型，将参数和对应的类型，放入环境中，z->Integer，
+;; 第五步，检查Lambda的body的类型，body为(Prim '+ ...)，对应的op类型为((Integer Integer) . Integer)，对应的返回值类型为Integer
+;; 对应的lambda的类型为(Integer -> Integer)
+;; 第六步，检查Def的类型与Def的body的类型是否相等
+;; 第七步，检查ProgramDefsExp的body的类型，并检查body的类型是否等于Integer
+
+
+
+
