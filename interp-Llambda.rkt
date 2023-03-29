@@ -37,56 +37,56 @@
 (define (interp-Llambda p)
   (send (new interp-Llambda-class) interp-program p))
 
-(interp-Llambda
- (ProgramDefsExp
- '()
- (list
-  (Def
-   'f
-   '((x : Integer))
-   '(Integer -> Integer)
-   '()
-   (Let
-    'y
-    (Int 4)
-    (Lambda
-     '((z : Integer))
-     'Integer
-     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
- (Let
-  'g
-  (Apply (Var 'f) (list (Int 5)))
-  (Let
-   'h
-   (Apply (Var 'f) (list (Int 3)))
-   (Prim
-    '+
-    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
-
-(printf "-------\n")
-
-(interp-Llambda
-(ProgramDefsExp
- '()
- '()
- (Let
-  'x
-  (Int 0)
-  (Let
-   'y
-   (Int 0)
-   (Let
-    'z
-    (Int 20)
-    (Let
-     'f
-     (Lambda
-      '((a : Integer))
-      'Integer
-      (Prim '+ (list (Var 'a) (Prim '+ (list (Var 'x) (Var 'z))))))
-     (Begin
-      (list (SetBang 'x (Int 10)) (SetBang 'y (Int 12)))
-      (Apply (Var 'f) (list (Var 'y))))))))))
+;(interp-Llambda
+; (ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'f
+;   '((x : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y
+;    (Int 4)
+;    (Lambda
+;     '((z : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+; (Let
+;  'g
+;  (Apply (Var 'f) (list (Int 5)))
+;  (Let
+;   'h
+;   (Apply (Var 'f) (list (Int 3)))
+;   (Prim
+;    '+
+;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
+;
+;(printf "-------\n")
+;
+;(interp-Llambda
+;(ProgramDefsExp
+; '()
+; '()
+; (Let
+;  'x
+;  (Int 0)
+;  (Let
+;   'y
+;   (Int 0)
+;   (Let
+;    'z
+;    (Int 20)
+;    (Let
+;     'f
+;     (Lambda
+;      '((a : Integer))
+;      'Integer
+;      (Prim '+ (list (Var 'a) (Prim '+ (list (Var 'x) (Var 'z))))))
+;     (Begin
+;      (list (SetBang 'x (Int 10)) (SetBang 'y (Int 12)))
+;      (Apply (Var 'f) (list (Var 'y))))))))))
 
 ;;分支的步骤
 ;; 第一步，解释def，只有一个def，返回一个Function，并放入环境中，环境中为函数名和Function的对应

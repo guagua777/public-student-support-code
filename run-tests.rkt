@@ -23,7 +23,7 @@
 (require "type-check-Lvecof.rkt")
 (require "type-check-Lfun.rkt")
 (require "type-check-Llambda.rkt")
-;(require "compiler.rkt")
+(require "compiler.rkt")
 (debug-level 1)
 ;(AST-output-syntax 'concrete-syntax)
 
@@ -56,8 +56,8 @@
 ;(interp-tests "function" type-check-Lfun '() interp-Lfun "functions_test" (tests-for "functions"))
 ;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
 
-(interp-tests "lambda" type-check-Llambda '() interp-Llambda "lambda_test" (tests-for "lambda"))
-;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
+;(interp-tests "lambda" type-check-Llambda '() interp-Llambda "lambda_test" (tests-for "lambda"))
+(interp-tests "lambda" type-check-Llambda compiler-passes interp-Llambda "lambda_test" (tests-for "lambda"))
 
 ;; Uncomment the following when all the passes are complete to
 ;; test the final x86 code.

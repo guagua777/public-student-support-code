@@ -75,31 +75,31 @@
   (send (new type-check-Llambda-class) type-check-program p))
 
 
-(type-check-Llambda
- (ProgramDefsExp
- '()
- (list
-  (Def
-   'f
-   '((x : Integer))
-   '(Integer -> Integer)
-   '()
-   (Let
-    'y
-    (Int 4)
-    (Lambda
-     '((z : Integer))
-     'Integer
-     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
- (Let
-  'g
-  (Apply (Var 'f) (list (Int 5)))
-  (Let
-   'h
-   (Apply (Var 'f) (list (Int 3)))
-   (Prim
-    '+
-    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
+;(type-check-Llambda
+; (ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'f
+;   '((x : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y
+;    (Int 4)
+;    (Lambda
+;     '((z : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+; (Let
+;  'g
+;  (Apply (Var 'f) (list (Int 5)))
+;  (Let
+;   'h
+;   (Apply (Var 'f) (list (Int 3)))
+;   (Prim
+;    '+
+;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
 
 
 ;; 分支步骤

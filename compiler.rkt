@@ -14,6 +14,8 @@
 (require "interp-Cvec.rkt")
 (require "interp-Lfun.rkt")
 (require "interp-Cfun.rkt")
+(require "interp-Llambda.rkt")
+(require "interp-Clambda.rkt")
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "type-check-Lif.rkt")
@@ -24,6 +26,8 @@
 (require "type-check-Cvec.rkt")
 (require "type-check-Lfun.rkt")
 (require "type-check-Cfun.rkt")
+(require "type-check-Llambda.rkt")
+(require "type-check-Clambda.rkt")
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "graph-printing.rkt")
@@ -130,8 +134,6 @@
 ;               )...))
 
 
-
-
 ;;------------------------------------------------------
 ;; the process of compiler
 
@@ -139,6 +141,8 @@
 
 ;; -------------------------------------------------------------------------------------
 ;; shrink
+;; 变换and和or
+;; 最外层body变成main函数
 
 (define shrink-exp
   (lambda (e)
@@ -159,6 +163,8 @@
        (Let x (shrink-exp e1) (shrink-exp body))]
       [(If cnd thn els)
        (If (shrink-exp cnd) (shrink-exp thn) (shrink-exp els))]
+      [(Lambda param rt body)
+       (Lambda param rt (shrink-exp body))]
       [else e])))
       
       
@@ -183,6 +189,47 @@
 
 ;; shrink后将ProgramDefsExp变成了ProgramDefs，也就是多个函数的列表
 
+;; lambda.rkt
+;(define/override (shrink-exp e)
+;  (match e
+;    [(Lambda param rt body)
+;     (Lambda param rt (shrink-exp body))]
+;    [else
+;     (super shrink-exp e)]))
+
+;; running example
+;(define (apply [f : (Integer -> Integer)] [x : Integer]) : Integer
+;  (f x))
+;(let ([y (read)])
+;  (let ([add-y (lambda: ([z : Integer]) : Integer (+ z y))]) ;; 是lambda冒号，跟scheme中lambda写法不太一样
+;    (apply add-y (procedure-arity add-y))))
+
+
+;(shrink
+;(ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'f
+;   '((x : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y
+;    (Int 4)
+;    (Lambda
+;     '((z : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+; (Let
+;  'g
+;  (Apply (Var 'f) (list (Int 5)))
+;  (Let
+;   'h
+;   (Apply (Var 'f) (list (Int 3)))
+;   (Prim
+;    '+
+;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))
 
 
 ;;--------------------------------------------------------------------------------------
@@ -209,6 +256,16 @@
 ;  (match e
 ;    [(ProgramDefs info ds)
 ;     (ProgramDefs info (for/list ([d ds]) (pe-def d)))]))
+
+;; lambda
+;(define/override (pe-exp env)
+;  (lambda (e)
+;    (match e
+;      [(Prim 'procedure-arity (list e1))
+;       (Prim 'procedure-arity (list (recur e1)))]
+;      [(Lambda params rT body)
+;       (Lambda params rT (recur body))]
+;      [else ((super pe-exp env) e)])))
 
 ;;----------------------------------------------------------------
 ;; uniquify
@@ -246,14 +303,20 @@
       [(Apply f es)
        (define new-es (map (uniquify-exp env) es))
        (define new-f ((uniquify-exp env) f))
-       (Apply new-f new-es)])))
+       (Apply new-f new-es)]
+      [(Lambda (list `[,xs : ,Ts] ...) rT body)
+       (define new-xs (for/list ([x xs]) (gensym (racket-id->c-id x))))
+       (define new-env (append (map cons xs new-xs) env))
+       (define body^ ((uniquify-exp new-env) body))
+       (Lambda (for/list ([x new-xs] [t Ts]) `[,x : ,t]) rT body^)]
+      )))
 
 (define (uniquify-def env)
   (lambda (d)
     (match d
       [(Def f (list `[,xs : ,ps] ...) rt info body)
        ;; 使用新的参数名替换老的参数名
-       (define new-xs (for/list ([x xs]) (gensym x)))
+       (define new-xs (for/list ([x xs]) (gensym (racket-id->c-id x))));;x)))
        (define new-env (append (map cons xs new-xs) env))
        ;; 使用新的函数名替换老的函数名
        (Def (cdr (assq f env))
@@ -279,7 +342,80 @@
                          [else (error "illegal def")])))
      (ProgramDefs info (for/list ([d ds]) ((uniquify-def new-env) d)))]))
 
+;; lambda
+;(defien/override ((uniquify-exp env) e)
+;  (match e
+;    [(Lambda (list `[,xs : ,Ts] ...) rT body)
+;     (define new-xs (for/list ([x xs]) (gensym (racket-id->c-id x))))
+;     (define new-env (append (map cons xs new-xs) env))
+;     (define body^ ((uniquify-exp new-env) body))
+;     (Lambda (for/list ([x new-xs] [t Ts]) `[,x : ,t]) rT body^)]
+;    [else ((super uniquify-exp env) e)]))
 
+;(uniquify
+;(shrink
+;(ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'f
+;   '((x : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y
+;    (Int 4)
+;    (Lambda
+;     '((z : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+; (Let
+;  'g
+;  (Apply (Var 'f) (list (Int 5)))
+;  (Let
+;   'h
+;   (Apply (Var 'f) (list (Int 3)))
+;   (Prim
+;    '+
+;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15))))))))))
+
+
+;; -----------------------------------------------------------------------------------
+;; optimize-direct-calls
+
+;(define/public (optimize-direct-calls-exp e)
+;  (let ([recur (lambda (e) (optimize-direct-calls-exp e))]) ;; 重新定义函数，直接这样(let ([recur optimize-direct-calls-exp])
+;    (match e
+;      [(Int n) (Int n)]
+;      [(Var x) (Var x)]
+;      [(Void) (Void)]
+;      [(Bool b) (Bool b)]
+;      [(HasType e t)
+;       (HasType (recur e) t)]
+;      [(Let x e body)
+;       (Let x (recur e) (recur body))]
+;      [(If cnd thn els)
+;       (If (recur cnd) (recur thn) (recur els))]
+;      [(Prim op es)
+;       (Prim op (map recur es))]
+;      [(Apply e es)
+;       (define e^ (recur e))
+;       (define es^ (map recur es))
+;       。。。。。。。。])))
+;
+;(define (optimize-direct-calls-def d)
+;  (match d
+;    [。。。。]))
+;
+;(define/public (optimize-direct-calls p)
+;  (match p
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds]) (optimize-direct-calls-def d)))]
+;    [else
+;     (error "")]))
+
+
+   
 
 ;;--------------------------------------------------------------------------------------
 ;; reveal functions and application
@@ -295,6 +431,14 @@
             (define f-pcount (assq x funs))
             (FunRef (car f-pcount) (cdr f-pcount))]
            [else (Var x)])]
+        ;; 重写Var的部分
+;        [(Var x)
+;         (cond [(dict-has-key? funs x)
+;                (FunRefArity x (dict-ref funs x))]
+;               [else e])]
+        [(Lambda params rT body)
+         (Lambda params rT (recur body))]
+         ;(Lambda params rT ((reveal-functions-exp funs) body))]
         [(Void) (Void)]
         [(Bool b) (Bool b)]
         [(HasType e t) (HasType (recur e) t)]
@@ -317,15 +461,187 @@
       [else
        (error "reveal def error")])))
 
+(define (fun-def-arity d)
+  (match d
+    [(Def f xs rt info body)
+     (length xs)]
+    [else
+     (error "fun-def-arity error")]))
+
+(define (fun-def-name d)
+  (match d
+    [(Def f ps rt info body)
+     f]
+    [else
+     (error 'fun-def-name "ill-formed function definition in ~a" d)]))
+
 (define (reveal-functions e)
   (match e
     [(ProgramDefs info ds)
      (define funs (for/list ([d ds])
-                    (cons (Def-name d) (length (Def-param* d)))));;(Def-name d)))
+                    (cons (fun-def-name d) (fun-def-arity d))))
+     ;; funs 环境中存储着，函数名->参数个数
      (ProgramDefs info (for/list ([d ds])
                          ((reveal-functions-def funs) d)))]
     [else
      (error "reveal error")]))
+
+
+;; lambda
+;; 
+;(define/override (reveal-funcitons-exp funs)
+;  (lambda (e)
+;    (match e
+;      [(Var x)
+;       (cond [(dict-has-key? funs x)
+;              (FunRefArity x (dict-ref funs x))]
+;             [else e])]
+;      [(Lambda params rT body)
+;       (Lambda params rT ((reveal-functions-exp funs) body))]
+;      [else
+;       ((super reveal-functions-exp funs) e)])))
+;
+;(define/public (fun-def-arity d)
+;  (match d
+;    [(Def f xs rt info body)
+;     (length xs)]
+;    [else
+;     (error "")]))
+;
+;(define/override (reveal-functions e)
+;  (match e
+;    [(ProgramDefs info ds)
+;     (define funs (for/list ([d ds])
+;                    (cons (fun-def-name d) (fun-def-arity d))))
+;     (ProgramDefs info (map (reveal-functions-def funs) ds))]
+;    [else
+;     (error "")]))
+
+
+;;--------------------------------------------------------------------------------------
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; the following handles global functions, but what about lambda's?
+;; how to identify lambda's? Lable them?
+;;   wait until after closure conversion and put the labels on the closure form?
+
+
+
+
+
+;; this replaces convert-to-closures
+(define/public (optimize-closures p)
+  (match p
+    [(ProgramDefs info ds)
+     (define escapees
+       (apply set-union (for/list ([d ds]) (detect-escapees-def d))))
+     (ProgramDefs info (append* (for/list ([d ds])
+                                  (optimize-closures-def escapees d))))]))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; the pass convert_to_closures that comes after reveal_functions and before limit_functions
+;; convert-to-closure
+(define/public (closure-convert-type t)
+  (match t
+    [`(Vector ,ts ...)
+     (define ts^ (for/list ([t ts]) (closure-convert-type t)))
+     `(Vector ,@ts^)]
+    [`(,ts ... -> ,rt)
+     (define ts^ (for/list ([t ts]) (closure-convert-type t)))
+     (define rt^ (closure-convert-type rt))
+     ;; the following isn't totally accurate but it captures how
+     ;; closures are used in the code generated for application.
+     `(Vector ((Vector _) ,@ts^ -> ,rt^))]
+    [else t]))
+
+;; the returned hash table maps variable x to (HasType x t)
+
+;; free-variables: expr -> (immutalbe-hash id expr)
+(define/public (free-variables e)
+  ;(define (recur e) (free-variables e))
+  (define recur free-variables)
+  (match e
+    [(HasType (Var x) t)
+     (hash x e)]
+    [(HasType e t)
+     (recur e)]
+    [(Int n) (hash)]
+    [(Bool b) (hash)]
+    [(FunRef f) (hash)]
+    [(Let x e body)
+     (hash-union (recur e) (hash-remove (recur body) x))]
+    [(If cnd thn els)
+     (hash-union (recur cnd) (recur thn) (recur els))]
+    [(Lambda (list `[,xs : ,Ts] ...) rT body)
+     (define (rm x h) (hash-remove h x))
+     (foldl rm (recur body) xs)]
+    [(Apply e es)
+     (apply hash-union (cons (recur e) (map recur es)))]
+    [(Prim op es)
+     (apply hash-union (map recur es))]
+    [else
+     (error "free variables error ")]))
+
+(define/public (convert-fun-body fvs-id free-vars body)
+  (let loop ([xs free-vars] [i 1])
+    (match xs
+      ['() body]
+      [(cons (HasType (Var x) t) xs^)
+       (Let x (Prim 'vector-ref (list (Var fvs-id) (Int i)))
+            (loop xs^ (add1 i)))]
+      [else
+       (error "convert fun body error")])))
+
+(define/public (convert-to-closures-exp e)
+  (define (recur e) (convert-to-closures-exp e))
+  (match e
+    [(Apply e es)
+     (define-values (new-e e-fs) (recur e))
+     (define-values (new-es es-fss) (for/lists (l1 l2) ([e es])
+                                      (recur e)))
+     (define-values (bnds new-e^)
+       (match new-e
+         [(HasType (Var c) ty)
+          (values '() (HasType (Var c) ty))]
+         [else
+          (define tmp (gensym 'clos))
+          (values (list (cons tmp new-e)) (Var tmp))]))
+     (define new-apply
+       (make-lets bnds
+                  (Apply (Prim 'vector-ref (list new-e^ (Int 0)))
+                         (cons new-e^ new-es))))
+     (values new-apply (append e-fs (apply append es-fss)))]
+    
+    [(Lambda (list `[,xs : ,Ts] ...) rT body)
+     (define-values (new-body body-fs) (recur body))
+     (define new-rT (closure-convert-type rT))
+     (let* ([fun-name (gensym 'lambda)]
+            [params (for/list ([x xs] [T Ts])
+                      `[,x : ,(closure-convert-type T)])]
+            [rm (lambda (x h) (hash-remove h x))]
+            [fvs-table (hash->list (foldl rm (free-variables body) xs))]
+            [fvs-expr (map cdr fvs-tables)]
+            [fvT (for/list ([e fvs-expr])
+                   (match e
+                     [(HasType _ t) (closure-convert-type t)]))]
+            [fvs-tmp (gensym 'fvs)])
+       (define  clos-type `(Vector _ ,@fvT))
+       (values
+        (Closure (length xs) (cons (FunRef fun-name) fvs-expr))
+        (cons (Def fun-name (cons `[,fvs-tmp : ,clos-type] params) new-rT
+                   '() (convert-fun-body fvs-tmp fvs-expr new-body))
+              body-fs)))]
+
+    [(FunRefArity f n)
+     (values (Closure n (list (FunRef f))) '())]
+    [(HasType e t) ;; 1257
+     。。。
+         
+       
+
+
+
+
 
 
 
@@ -955,9 +1271,9 @@
     [else #f]))
 
 
-(define symbol-append
-  (lambda (s1 s2)
-    (string->symbol (string-append (symbol->string s1) s2))))
+;(define symbol-append
+;  (lambda (s1 s2)
+;    (string->symbol (string-append (symbol->string s1) s2))))
 
 (define comparison-ops
   (lambda ()
@@ -2385,11 +2701,11 @@
 ;; Note that your compiler file (the file that defines the passes)
 ;; must be named "compiler.rkt"
 (define compiler-passes
-  `( ("shrink" ,shrink ,interp-Lfun ,type-check-Lfun)
-     ("uniquify" ,uniquify ,interp-Lfun ,type-check-Lfun)
-     ("reveal-functions" ,reveal-functions ,interp-Lfun ,type-check-Lfun)
-     ("limit-functions" ,limit-functions ,interp-Lfun ,type-check-Lfun)
-     ("expose-allocation" ,expose-allocation ,interp-Lfun ,type-check-Lfun)
+  `( ("shrink" ,shrink ,interp-Llambda ,type-check-Llambda)
+     ("uniquify" ,uniquify ,interp-Llambda ,type-check-Llambda)
+     ("reveal-functions" ,reveal-functions ,interp-Llambda ,type-check-Llambda)
+     ;("limit-functions" ,limit-functions ,interp-Lfun ,type-check-Lfun)
+     ;("expose-allocation" ,expose-allocation ,interp-Lfun ,type-check-Lfun)
      ;; Uncomment the following passes as you finish them.
      ;;("remove complex opera*" ,remove-complex-opera* ,interp-Lwhile ,type-check-Lwhile)
      ;;("explicate control" ,explicate-control ,interp-Cif ,type-check-Cif)
@@ -2399,28 +2715,6 @@
      ;;("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
-
-;; Lstructe
-;; function-call syntax
-
-;(let ([A (make-vector 2 2)])
-;  (let ([B (make-vector 2 3)])
-;    (let ([i 0])
-;      (let ([prod 0])
-;        (begin
-;          (while (< i n)
-;                 (begin
-;                   (set! prod (+ prod (* (vector-ref A i)
-;                                         (vector-ref B i))))
-;                   (set! i (+ i 1))))
-;          prod)))))
-
-
-;All the call-live variables are suppose to have edges in the interference graph to the caller-saved registers because we don’t save anything on the caller side leading up to a call. (See page 37.)
-;
-;So the call-live tuple-typed variables already have interference edges with the caller-saved registers because they are a subset of the call-live variables, i.e., the previous sentence applies to them.
-;
-;To make sure that the call-live tuple-typed variables get spilled, we need there to be interference edges between them and all the registers. So we add edges to the rest of the registers, i.e., the callee-saved registers.
 
 
 
