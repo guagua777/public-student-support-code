@@ -518,6 +518,7 @@
 ;     (error "")]))
 
 
+
 ;;--------------------------------------------------------------------------------------
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; the following handles global functions, but what about lambda's?
@@ -526,22 +527,23 @@
 
 
 
-
-
 ;; this replaces convert-to-closures
-(define/public (optimize-closures p)
-  (match p
-    [(ProgramDefs info ds)
-     (define escapees
-       (apply set-union (for/list ([d ds]) (detect-escapees-def d))))
-     (ProgramDefs info (append* (for/list ([d ds])
-                                  (optimize-closures-def escapees d))))]))
+;(define/public (optimize-closures p)
+;  (match p
+;    [(ProgramDefs info ds)
+;     (define escapees
+;       (apply set-union (for/list ([d ds]) (detect-escapees-def d))))
+;     (ProgramDefs info (append* (for/list ([d ds])
+;                                  (optimize-closures-def escapees d))))]))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; the pass convert_to_closures that comes after reveal_functions and before limit_functions
 ;; convert-to-closure
-(define/public (closure-convert-type t)
+
+
+
+(define (closure-convert-type t)
   (match t
     [`(Vector ,ts ...)
      (define ts^ (for/list ([t ts]) (closure-convert-type t)))
@@ -557,7 +559,7 @@
 ;; the returned hash table maps variable x to (HasType x t)
 
 ;; free-variables: expr -> (immutalbe-hash id expr)
-(define/public (free-variables e)
+(define (free-variables e)
   ;(define (recur e) (free-variables e))
   (define recur free-variables)
   (match e
@@ -567,7 +569,7 @@
      (recur e)]
     [(Int n) (hash)]
     [(Bool b) (hash)]
-    [(FunRef f) (hash)]
+    [(FunRef f n) (hash)]
     [(Let x e body)
      (hash-union (recur e) (hash-remove (recur body) x))]
     [(If cnd thn els)
@@ -580,9 +582,9 @@
     [(Prim op es)
      (apply hash-union (map recur es))]
     [else
-     (error "free variables error ")]))
+     (error "free variables error ~a \n" e)]))
 
-(define/public (convert-fun-body fvs-id free-vars body)
+(define (convert-fun-body fvs-id free-vars body)
   (let loop ([xs free-vars] [i 1])
     (match xs
       ['() body]
@@ -592,8 +594,13 @@
       [else
        (error "convert fun body error")])))
 
-(define/public (convert-to-closures-exp e)
+
+;> (foldl cons '() '(1 2 3 4))
+;'(4 3 2 1)
+
+(define (convert-to-closures-exp e)
   (define (recur e) (convert-to-closures-exp e))
+  ;; (define recur convert-to-closures-exp)
   (match e
     [(Apply e es)
      (define-values (new-e e-fs) (recur e))
@@ -611,7 +618,8 @@
                   (Apply (Prim 'vector-ref (list new-e^ (Int 0)))
                          (cons new-e^ new-es))))
      (values new-apply (append e-fs (apply append es-fss)))]
-    
+
+    ;; 需要转化为closure
     [(Lambda (list `[,xs : ,Ts] ...) rT body)
      (define-values (new-body body-fs) (recur body))
      (define new-rT (closure-convert-type rT))
@@ -620,7 +628,7 @@
                       `[,x : ,(closure-convert-type T)])]
             [rm (lambda (x h) (hash-remove h x))]
             [fvs-table (hash->list (foldl rm (free-variables body) xs))]
-            [fvs-expr (map cdr fvs-tables)]
+            [fvs-expr (map cdr fvs-table)] ;[fvs-expr (hash-values (foldl rm (free-variables body) xs))]
             [fvT (for/list ([e fvs-expr])
                    (match e
                      [(HasType _ t) (closure-convert-type t)]))]
@@ -632,13 +640,306 @@
                    '() (convert-fun-body fvs-tmp fvs-expr new-body))
               body-fs)))]
 
-    [(FunRefArity f n)
-     (values (Closure n (list (FunRef f))) '())]
-    [(HasType e t) ;; 1257
-     。。。
-         
-       
+;    [(FunRefArity f n)
+;     (values (Closure n (list (FunRef f))) '())]
+    [(FunRef f n)
+     (values (Closure n (list (FunRef f n))) '())]
+    [(HasType e t) 
+     (let-values ([(e b*) (recur e)])
+       (values (HasType e (closure-convert-type t)) b*))]
+    [(or (Var _) (Int _) (Bool _))
+     (values e '())]
+    [(Void)
+     (values (Void) '())]
+    [(Let x e body)
+     (define-values (new-e e-fs) (recur e))
+     (define-values (new-body body-fs) (recur body))
+     (values (Let x new-e new-body)
+             (append e-fs body-fs))]
+    [(If cnd thn els)
+     (define-values (new-cnd cnd-fs) (recur cnd))
+     (define-values (new-thn thn-fs) (recur thn))
+     (define-values (new-els els-fs) (recur els))
+     (values (If new-cnd new-thn new-els)
+             (append cnd-fs thn-fs els-fs))]
+    [(Prim op es)
+     (define-values (new-es es-fss) (for/lists (ls1 ls2) ([e es])
+                                      (recur e)))
+     (values (Prim op new-es) (append* es-fss))]
+    [else
+     (error "convert to closures exp error")]))
 
+(define (convert-to-closures-def e)
+  (match e
+    [(Def f params rt info body)
+     (define-values (new-body body-fs) (convert-to-closures-exp body))
+     (define new-params (for/list ([p params])
+                          (match p
+                            [`[,x : ,T]
+                             `[,x : ,(closure-convert-type T)]])))
+     (define new-rt (closure-convert-type rt))
+     (cond
+       [(eq? f 'main)
+        (cons (Def f new-params new-rt info new-body)
+              body-fs)]
+       [else
+        ;; fvs-tmp is not used, because there are no free variables
+        ;; so it's type doesn't matter
+        (define fvs-tmp (gensym 'fvs))
+        (cons
+         (Def f (cons `[,fvs-tmp : _] new-params) new-rt info
+              (convert-fun-body fvs-tmp '() new-body))
+         body-fs)])]
+    [else
+     (error "")]))
+
+;;4628
+(define (convert-to-closures e)
+  (match e
+    [(ProgramDefs info ds)
+     ;; 为什么要加append*
+     (ProgramDefs info (append* (for/list ([d ds])
+                                  (convert-to-closures-def d))))]))
+
+
+;(define (closure-convert-type t)
+;  (match t
+;    [`(Vector ,ts ...)
+;     (define ts^ (for/list ([t ts]) (closure-convert-type t)))
+;     `(Vector ,@ts^)]
+;    [`(,ts ... -> ,rt)
+;     (define ts^ (for/list ([t ts]) (closure-convert-type t)))
+;     (define rt^ (closure-convert-type rt))
+;     ;; the following isn't totally accurate but it captures how
+;     ;; closures are used in the code generated for application.
+;     `(Vector ((Vector _) ,@ts^ -> ,rt^))]
+;    [else t]))
+;
+;;; the returned hash table maps variable x to (HasType x t)
+;
+;;; free-variables: expr -> (immutalbe-hash id expr)
+;(define (free-variables e)
+;  ;(define (recur e) (free-variables e))
+;  (define recur free-variables)
+;  (match e
+;    [(HasType (Var x) t)
+;     (hash x e)]
+;    [(HasType e t)
+;     (recur e)]
+;    [(Int n) (hash)]
+;    [(Bool b) (hash)]
+;    [(FunRef f n) (hash)]
+;    [(Let x e body)
+;     (hash-union (recur e) (hash-remove (recur body) x))]
+;    [(If cnd thn els)
+;     (hash-union (recur cnd) (recur thn) (recur els))]
+;    [(Lambda (list `[,xs : ,Ts] ...) rT body)
+;     (define (rm x h) (hash-remove h x))
+;     (foldl rm (recur body) xs)]
+;    [(Apply e es)
+;     (apply hash-union (cons (recur e) (map recur es)))]
+;    [(Prim op es)
+;     (apply hash-union (map recur es))]
+;    [else
+;     (error "free variables error ~a \n" e)]))
+;
+;(define (convert-fun-body fvs-id free-vars body)
+;  (let loop ([xs free-vars] [i 1])
+;    (match xs
+;      ['() body]
+;      [(cons (HasType (Var x) t) xs^)
+;       (Let x (Prim 'vector-ref (list (Var fvs-id) (Int i)))
+;            (loop xs^ (add1 i)))]
+;      [else
+;       (error "convert fun body error")])))
+;
+;
+;;> (foldl cons '() '(1 2 3 4))
+;;'(4 3 2 1)
+;
+;(define (convert-to-closures-exp e)
+;  (define (recur e) (convert-to-closures-exp e))
+;  ;; (define recur convert-to-closures-exp)
+;  (match e
+;    [(Apply e es)
+;     (define-values (new-e e-fs) (recur e))
+;     (define-values (new-es es-fss) (for/lists (l1 l2) ([e es])
+;                                      (recur e)))
+;     (define-values (bnds new-e^)
+;       (match new-e
+;         [(HasType (Var c) ty)
+;          (values '() (HasType (Var c) ty))]
+;         [else
+;          (define tmp (gensym 'clos))
+;          (values (list (cons tmp new-e)) (Var tmp))]))
+;     (define new-apply
+;       (make-lets bnds
+;                  (Apply (Prim 'vector-ref (list new-e^ (Int 0)))
+;                         (cons new-e^ new-es))))
+;     (values new-apply (append e-fs (apply append es-fss)))]
+;
+;    ;; 需要转化为closure
+;    [(Lambda (list `[,xs : ,Ts] ...) rT body)
+;     (define-values (new-body body-fs) (recur body))
+;     (define new-rT (closure-convert-type rT))
+;     (let* ([fun-name (gensym 'lambda)]
+;            [params (for/list ([x xs] [T Ts])
+;                      `[,x : ,(closure-convert-type T)])]
+;            [rm (lambda (x h) (hash-remove h x))]
+;            [fvs-table (hash->list (foldl rm (free-variables body) xs))]
+;            [fvs-expr (map cdr fvs-table)] ;[fvs-expr (hash-values (foldl rm (free-variables body) xs))]
+;            [fvT (for/list ([e fvs-expr])
+;                   (match e
+;                     [(HasType _ t) (closure-convert-type t)]))]
+;            [fvs-tmp (gensym 'fvs)])
+;       (define  clos-type `(Vector _ ,@fvT))
+;       (values
+;        (Closure (length xs) (cons (FunRef fun-name) fvs-expr))
+;        (cons (Def fun-name (cons `[,fvs-tmp : ,clos-type] params) new-rT
+;                   '() (convert-fun-body fvs-tmp fvs-expr new-body))
+;              body-fs)))]
+;
+;;    [(FunRefArity f n)
+;;     (values (Closure n (list (FunRef f))) '())]
+;    [(FunRef f n)
+;     (values (Closure n (list (FunRef f n))) '())]
+;    [(HasType e t) 
+;     (let-values ([(e b*) (recur e)])
+;       (values (HasType e (closure-convert-type t)) b*))]
+;    [(or (Var _) (Int _) (Bool _))
+;     (values e '())]
+;    [(Void)
+;     (values (Void) '())]
+;    [(Let x e body)
+;     (define-values (new-e e-fs) (recur e))
+;     (define-values (new-body body-fs) (recur body))
+;     (values (Let x new-e new-body)
+;             (append e-fs body-fs))]
+;    [(If cnd thn els)
+;     (define-values (new-cnd cnd-fs) (recur cnd))
+;     (define-values (new-thn thn-fs) (recur thn))
+;     (define-values (new-els els-fs) (recur els))
+;     (values (If new-cnd new-thn new-els)
+;             (append cnd-fs thn-fs els-fs))]
+;    [(Prim op es)
+;     (define-values (new-es es-fss) (for/lists (ls1 ls2) ([e es])
+;                                      (recur e)))
+;     (values (Prim op new-es) (append* es-fss))]
+;    [else
+;     (error "convert to closures exp error")]))
+;
+;(define (convert-to-closures-def e)
+;  (match e
+;    [(Def f params rt info body)
+;     (define-values (new-body body-fs) (convert-to-closures-exp body))
+;     (define new-params (for/list ([p params])
+;                          (match p
+;                            [`[,x : ,T]
+;                             `[,x : ,(closure-convert-type T)]])))
+;     (define new-rt (closure-convert-type rt))
+;     (cond
+;       [(eq? f 'main)
+;        (cons (Def f new-params new-rt info new-body)
+;              body-fs)]
+;       [else
+;        ;; fvs-tmp is not used, because there are no free variables
+;        ;; so it's type doesn't matter
+;        (define fvs-tmp (gensym 'fvs))
+;        (cons
+;         (Def f (cons `[,fvs-tmp : _] new-params) new-rt info
+;              (convert-fun-body fvs-tmp '() new-body))
+;         body-fs)])]
+;    [else
+;     (error "")]))
+;
+;;;4628
+;(define (convert-to-closures e)
+;  (match e
+;    [(ProgramDefs info ds)
+;     ;; 为什么要加append*
+;     (ProgramDefs info (append* (for/list ([d ds])
+;                                  (convert-to-closures-def d))))]))
+
+;(reveal-functions
+;(uniquify
+;(shrink
+;(ProgramDefsExp
+; '()
+; (list
+;  (Def
+;   'f
+;   '((x : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y
+;    (Int 4)
+;    (Lambda
+;     '((z : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x) (Prim '+ (list (Var 'y) (Var 'z)))))))))
+; (Let
+;  'g
+;  (Apply (Var 'f) (list (Int 5)))
+;  (Let
+;   'h
+;   (Apply (Var 'f) (list (Int 3)))
+;   (Prim
+;    '+
+;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))))
+
+;(convert-to-closures
+; (ProgramDefs
+; '()
+; (list
+;  (Def
+;   'f372557
+;   '((x372558 : Integer))
+;   '(Integer -> Integer)
+;   '()
+;   (Let
+;    'y372559
+;    (Int 4)
+;    (Lambda
+;     '((z372560 : Integer))
+;     'Integer
+;     (Prim '+ (list (Var 'x372558) (Prim '+ (list (Var 'y372559) (Var 'z372560))))))))
+;  (Def
+;   'main
+;   '()
+;   'Integer
+;   '()
+;   (Let
+;    'g372561
+;    (Apply (FunRef 'f372557 1) (list (Int 5)))
+;    (Let
+;     'h372562
+;     (Apply (FunRef 'f372557 1) (list (Int 3)))
+;     (Prim '+ (list (Apply (Var 'g372561) (list (Int 11))) (Apply (Var 'h372562) (list (Int 15)))))))))))
+     
+    
+    
+         
+;;--------------------------------------------------------------------------------------       
+;; optimize known calls
+
+
+
+
+;(define/public (optimize-known-calls-def d)
+;  (match d
+;    [(Def f ps rt info body)
+;     (define new-body ((optimize-known-calls-exp '()) body))
+;     (Def f ps rt info new-body)]))
+;
+;(define/public (optimize-known-calls p)
+;  (match p
+;    [(ProgramDefs info ds)
+;     (ProgramDefs info (for/list ([d ds])
+;                         (optimize-known-calls-def d)))]
+;    [else
+;     (error "optimize-known-calls eror")]))
+   
 
 
 
@@ -767,6 +1068,15 @@
      (error "def is error")]))
 
 
+;; lambda
+;(define/override (limit-functions-exp args)
+;  (lambda (e)
+;    (let ([recur (limit-functions-exp args)])
+;      (match e
+;        [(Closure arity fvs)
+;         (Closure arity (map recur fvs))]
+;        [else
+;         ((super limit-functions-exp args) e)]))))
 
 
 
@@ -871,6 +1181,16 @@
      (ProgramDefs info (for/list ([d ds]) (expose-allocation-def d)))]))
 
 
+
+;; lambda
+;(define/override (expose-alloc-exp e)
+;  (match e
+;    [(HasType (Closure arity es) vec-type)
+;     (define len (length es))
+;     (expose-alloc-vector es vec-type
+;                          (AllocateClosure len vec-type arity))]
+;    [else
+;     (super expose-alloc-exp e)]))
 
 
 ;;----------------------------------------------------------

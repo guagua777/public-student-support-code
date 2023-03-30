@@ -50,14 +50,14 @@
 ;(interp-tests "while" type-check-Lwhile '() interp-Lwhile "while_test" (tests-for "while"))
 ;(interp-tests "while" type-check-Lwhile compiler-passes interp-Lwhile "while_test" (tests-for "while"))
 
-;(interp-tests "vector" type-check-Lvec '() interp-Lvec "vectors_test" (tests-for "vectors"))
+(interp-tests "vector" type-check-Lvec '() interp-Lvec "vectors_test" (tests-for "vectors"))
 ;(interp-tests "vector" type-check-Lvec compiler-passes interp-Lvec "vectors_test" (tests-for "vectors"))
 
 ;(interp-tests "function" type-check-Lfun '() interp-Lfun "functions_test" (tests-for "functions"))
 ;(interp-tests "function" type-check-Lfun compiler-passes interp-Lfun "functions_test" (tests-for "functions"))
 
 ;(interp-tests "lambda" type-check-Llambda '() interp-Llambda "lambda_test" (tests-for "lambda"))
-(interp-tests "lambda" type-check-Llambda compiler-passes interp-Llambda "lambda_test" (tests-for "lambda"))
+;(interp-tests "lambda" type-check-Llambda compiler-passes interp-Llambda "lambda_test" (tests-for "lambda"))
 
 ;; Uncomment the following when all the passes are complete to
 ;; test the final x86 code.
