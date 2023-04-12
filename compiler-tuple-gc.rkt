@@ -73,6 +73,42 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+;;----------------------------------------------------------
+;; vector.rkt lambda.rkt
+;; partial-eval
+;; 5047
+(define/override (pe-exp env)
+  (lambda (e)
+    (match e
+      [(Void)
+       (Void)]
+      [(HasType e ty)
+       (define e^ ((pe-exp env) e))
+       (HasType e^ ty)]
+      [(Prim op es)
+       #:when (member op '(vector vector-ref vector-set! vector-length))
+       ;; TODO
+       (define es^ (for/list ([e es]) ((pe-exp env) e)))
+       (Prim op es^)]
+      [else
+       ((super pe-exp env) e)])))
+
+;;----------------------------------------------------------
+;; vector.rkt
+;; uniquify
+;; lambda.rkt
+
+(define/override (uniquify-exp env)
+  (lambda (e)
+    (match e
+      [(Void)
+       (Void)]
+      [(HasType e t)
+       (HasType ((uniquify-exp env) e) t)]
+      [else
+       ((super uniquify-exp env) e)])))
+
+
 ;To create the s-expression for the Vector type,
 ;we use the unquote-splicing operator ,@ to insert the list t* without its usual start and end parentheses.
 
@@ -173,6 +209,53 @@
     (match p
       [(Program info e)
        (Program info (shrink-exp e))])))
+
+
+;; lambda.rkt
+;; 5048
+
+(inherit variable-size print-x86-block print-x86-instr
+         first-offset add-node generic-explicate-pred partial-eval)
+
+(define/public (vector-primitives)
+  (set 'vector 'vector-ref 'vector-set! 'vector-length))
+
+#;(define/override (primitives)
+  (set-union (super primitives) (vector-primitives)))
+
+(define/override (shrink-exp e)
+  (match e
+    [(Void)
+     (Void)]
+    ;; Annoying to have to re-do the following code to insert
+    ;; the has-type's
+    [(Prim 'and (list e1 e2))
+     #;(let ([tmp (gensym 'tmp)])
+       (Let tmp (shrink-exp e1)
+            (HasType (If (Var tmp) (shrink-exp e2) (Var tmp)) 'Boolean)))
+
+     ;; the following is better for explicate-pred
+     (If (shrink-exp e1) (shrink-exp e2) (Bool #f))]
+    [(Prim 'or (list e1 e2))
+     #;(let ([tmp (gensym 'tmp)])
+       (Let tmp (shrink-exp e1)
+            (HasType (If (Var tmp) (Var tmp) (shrink-exp e2)) 'Boolean)))
+
+     ;; the following is better for explicate-pred
+     (If (shrink-exp e1) (Bool #t) (shrink-exp e2))]
+    [(Prim '<= (list e1 e2))
+     (Prim 'not (list (Prim '< (list (shrink-exp e2) (shrink-exp e1)))))]
+    [(Prim '>= (list e1 e2))
+     (Prim 'not (list (Prim '< (list (shrink-exp e1) (shrink-exp e2)))))]
+    [(Prim '- (list e1 e2))
+     (Prim '+ (list (shrink-exp e1)
+                    (Prim '- (list (shrink-exp e2)))))]
+    [(HasType e t)
+     (HasType (shrink-exp e) t)]
+    [else
+     (super shrink-exp e)]))
+  
+
 
 ;;--------------------------------------------------------------------------------------
 
@@ -415,6 +498,86 @@
 ;    'v
 ;    (HasType (Prim 'vector (list (Int 1) (Int 2))) '(Vector Integer Integer))
 ;    (Int 42)))))
+
+;; vector.rkt
+;; expose-allocation
+;; lambda.rkt 50
+(define/public (expose-alloc-vector es vec-type alloc-exp)
+  (define e* (for/list ([e es]) (expose-alloc-exp e)))
+  ;; 1. evaluate the e* and let-bind them to x*
+  ;; 2. allocate the vector
+  ;; 3. initialize the vector
+  ;; Setp 1 comes before step 2 because the e* may trigger GC!
+  (define len (length e*))
+  (define size (* (+ len 1) 8))
+  (define vec (gensym 'alloc))
+
+  ;; step 1
+  (define-values (bndss inits)
+    (for/lists (l1 l2) ([e e*])
+      (cond [(atm? e) (values '() e)]
+            [else
+             (define tmp (gensym 'vecinit))
+             (values (list (cons tmp e)) (Var tmp))])))
+  (define bnds (append* bndss))
+
+  ;; step 3
+  (define init-vec (foldr
+                    (lambda (init n rest)
+                      (let ([v (gensym '_)])
+                        (Let v (Prim 'vector-set! (list (Var vec) (Int n) init)) rest)))
+                    (Var vec)
+                    inits
+                    (range len)))
+
+  ;; step 2 (and include step 3)
+  (define voidy (gensym '_))
+  (define alloc-init-vec
+    (Let voidy
+         (If (Prim '< (list (Prim '+ (list (GlobalValue 'free_ptr)
+                                           (Int size)))
+                            (GlobalValue 'fromspace_end)))
+             (Void)
+             (Collect size))
+         (Let vec alloc-exp init-vec)))
+
+  ;; combine 1 and 2-3
+  (make-lets bnds alloc-init-vec))
+
+(define/public (expose-alloc-exp e)
+  (verbose "expose alloc exp" e)
+  (match e
+    [(HasType (Prim 'vector es) vec-type)
+     (define len (length es))
+     (expose-alloc-vector es vec-type (Allocate len vec-type))]
+    [(Prim 'vector es)
+     (error "expose-alloc-exp expected has-type around vector ~a" e)]
+    #;[(HasType e t)
+     (HasType (expose-alloc-exp e) t)]
+    [(Var x) (Var x)]
+    [(Int n) (Int n)]
+    [(Bool b) (Bool b)]
+    [(Void) (Void)]
+    [(If cnd thn els)
+     (If (expose-alloc-exp cnd)
+         (expose-alloc-exp thn)
+         (expose-alloc-exp els))]
+    [(Prim op es)
+     (define new-es (map (lambda (e)
+                           (expose-alloc-exp e))
+                         es))
+     (Prim op new-es)]
+    [(Let x rhs body)
+     (Let x (expose-alloc-exp rhs)
+          (expose-alloc-exp body))]))
+
+(define/public (expose-allocation e)
+  (verbose "expose-allocation" e)
+  (match e
+    [(Program info body)
+     (Program info (expose-alloc-exp body))]
+    [else
+     (error "expose allocation unmatched" e)]))
 
 ;;----------------------------------------------------------
 

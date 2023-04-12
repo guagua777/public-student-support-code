@@ -36,6 +36,7 @@
     (define/public (interp-def d)
       (match d
         [(Def f (list `[,xs : ,ps] ...) rt _ body)
+         ;; 把body直接放到了Function里面，并没有对body求值
          (cons f (box (Function xs body '())))]
         ))
 

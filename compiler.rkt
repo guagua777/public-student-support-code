@@ -882,7 +882,8 @@
         ;;(printf "body-fs is ~a \n" body-fs)
         (cons
          (Def f (cons `[,fvs-tmp : _] new-params) new-rt info
-              (convert-fun-body fvs-tmp '() new-body))
+              new-body)
+              ;(convert-fun-body fvs-tmp '() new-body))
          body-fs)])]
     [else
      (error "")]))
@@ -955,37 +956,70 @@
      (Apply (FunRef 'f372557 1) (list (Int 3)))
      (Prim '+ (list (Apply (Var 'g372561) (list (Int 11))) (Apply (Var 'h372562) (list (Int 15)))))))))))
      
-    
-    
-         
+
+
 ;;--------------------------------------------------------------------------------------       
 ;; optimize known calls
+;; 5056
 
+(define/public (optimize-known-calls-exp closures)
+  (lambda (e)
+    (let ([recur (optimize-known-calls-exp closures)])
+      (match e
+        [(Int n) (Int n)]
+        [(Var x) (Var x)]
+        [(Void) (Void)]
+        [(Bool b) (Bool b)]
+        [(Prim 'vector-ref (list (Var c) (Int 0)))
+         #:when (dict-has-key? closures c)
+         (debug "closure vector-ref " c (dict-ref closures c))
+         (FunRef (dict-ref closures c))]
+        [(HasType e t) (HasType (recur e) t)]
+        [(Let x (HasType (Closure arity (list (FunRef f) fvs ...)) clos-ty)
+              body)
+         (debug "closure" x f)
+         (define closures^ (cons (cons x f) closures))
+         (define body^ ((optimize-known-calls-exp closures^) body))
+         (Let x (HasType (Closure arity (cons (FunRef f) fvs)) clos-ty)
+              body^)]
+        [(Let x e body)
+         (Let x (recur e) (recur body))]
+        [(If cnd thn els)
+         (If (recur cnd) (recur thn) (recur els))]
+        [(Prim op es)
+         (define e^ (recur e))
+         (define es^ (map recur es))
+         (match e^
+           [(Lambda (list `[,xs : ,Ts] ...) rT body)
+            (make-lets (map cons xs es^) body)]
+           [else (Apply e^ es^)])]
+        [(Closure arity es)
+         (define es^ (for/list ([e es]) (recur e)))
+         (Closure arity es^)]
+        [(FunRef f)
+         (FunRef f)]
+        [else (error "optimize known calls exp unmatched" e)]))))
+         
+(define/public (optimize-known-calls-def d)
+  (match d
+    [(Def f ps rt info body)
+     (define new-body ((optimize-known-calls-exp '()) body))
+     (Def f ps rt info new-body)]))
 
-
-
-;(define/public (optimize-known-calls-def d)
-;  (match d
-;    [(Def f ps rt info body)
-;     (define new-body ((optimize-known-calls-exp '()) body))
-;     (Def f ps rt info new-body)]))
-;
-;(define/public (optimize-known-calls p)
-;  (match p
-;    [(ProgramDefs info ds)
-;     (ProgramDefs info (for/list ([d ds])
-;                         (optimize-known-calls-def d)))]
-;    [else
-;     (error "optimize-known-calls eror")]))
+(define/public (optimize-known-calls p)
+  (match p
+    [(ProgramDefs info ds)
+     (ProgramDefs info (for/list ([d ds])
+                         (optimize-known-calls-def d)))]
+    [else
+     (error "optimize-known-calls eror")]))
    
-
-
-
-
-
 
 ;;--------------------------------------------------------------------------------------
 ;; limit-functions
+
+;; 是要做什么了？
+;; 限制参数个数为6个以内
 
 ;; 需要改动的点
 ;; 1. 函数定义
@@ -1056,6 +1090,9 @@
             ;; (e0 e1 ... en) ⇒ (e0 e1 ...e5 (vector e6 ...en))
             (define vector-val (Prim 'vector (map recur last-es))) 
             (Apply f (append (map recur first-es) (list vector-val)))])]
+        ;; lambda中添加的分支
+        [(Closure arity fvs) ;;fvs为lambda生成的函数和对应的自由变量
+         (Closure arity (map recur fvs))]         
         [else
          (error "limit functions exp unmatched ~a" e)]))))
 
@@ -1221,16 +1258,159 @@
 
 
 ;; lambda
-;(define/override (expose-alloc-exp e)
-;  (match e
-;    [(HasType (Closure arity es) vec-type)
-;     (define len (length es))
-;     (expose-alloc-vector es vec-type
-;                          (AllocateClosure len vec-type arity))]
-;    [else
-;     (super expose-alloc-exp e)]))
+(define/override (expose-alloc-exp e)
+  (match e
+    [(HasType (Closure arity es) vec-type)
+     (define len (length es))
+     (expose-alloc-vector es vec-type
+                          (AllocateClosure len vec-type arity))]
+    [else
+     (super expose-alloc-exp e)]))
 
 
+;; vector.rkt
+;; vector章节中的expose
+;; expose-allocation
+;; lambda.rkt 50
+;; 思路是什么？
+;; 书中给出的部分为：
+;(1) a sequence of temporary variable bindings for the initializing expressions,
+;(2) a conditional call to collect,
+;(3) a call to allocate, and
+;(4) the initialization of the tuple.
+;还有一个
+;(5) 最后的返回值v
+
+;; 所以思路为
+;; 1. 构建第一部分中的所有的let中的元素，将所有的表达式分配一个临时变量，使用ass-list存储
+;; 2. 将第5部分作为洞传给第4部分
+;; 3. 将第4部分作为洞传给第3部分
+;; 4. 将第3部分作为洞传给第2部分
+;; 5. 将第2部分作为洞传给第1部分
+
+(define/public (expose-alloc-vector es vec-type alloc-exp) ;; es为数据，vec-type为对应的类型
+  (define e* (for/list ([e es]) (expose-alloc-exp e)))
+  ;; 1. evaluate the e* and let-bind them to x*
+  ;; 2. allocate the vector
+  ;; 3. initialize the vector
+  ;; Setp 1 comes before step 2 because the e* may trigger GC!
+  ;; 在分配之前有可能会触发gc，因为分配之前首先要检查是否有足够的空间，如果没有需要先gc
+  (define len (length e*))
+  (define size (* (+ len 1) 8))
+  (define vec (gensym 'alloc))
+
+  ;; step 1
+  (define-values (bndss inits)
+    (for/lists (l1 l2) ([e e*])
+      (cond [(atm? e) (values '() e)]
+            [else
+             (define tmp (gensym 'vecinit))
+             (values (list (cons tmp e)) (Var tmp))])))
+  (define bnds (append* bndss))
+
+  ;; step 3
+  ;; 可以定义一个方法，参数是inits，range，还有(Var vec)
+  ;; 类似于remove-complex-op中的Prim分支
+  (define init-vec (foldr
+                    (lambda (init n rest) ;; rest对应(Var vec)并作为初始值，init对应inits，n对应range
+                      (let ([v (gensym '_)])
+                        (Let v (Prim 'vector-set! (list (Var vec) (Int n) init)) rest)))
+                    (Var vec) ;;第5部分
+                    inits
+                    (range len)))
+
+  ;; step 2 (and include step 3)
+  (define voidy (gensym '_))
+  (define alloc-init-vec
+    (Let voidy
+         (If (Prim '< (list (Prim '+ (list (GlobalValue 'free_ptr)
+                                           (Int size)))
+                            (GlobalValue 'fromspace_end)))
+             (Void)
+             (Collect size))
+         (Let vec alloc-exp init-vec))) ;; 第三部分作为第二部分的洞传给第二部分
+
+  ;; combine 1 and 2-3
+  (make-lets bnds alloc-init-vec));; alloc-init-vec又做为洞
+
+(define/public (expose-alloc-exp e)
+  (verbose "expose alloc exp" e)
+  (match e
+    [(HasType (Prim 'vector es) vec-type) ;; 创建vector，此时需要进行分配到堆上 page 108
+     (define len (length es))
+     (expose-alloc-vector es vec-type (Allocate len vec-type))]
+    [(Prim 'vector es)
+     (error "expose-alloc-exp expected has-type around vector ~a" e)]
+    #;[(HasType e t)
+     (HasType (expose-alloc-exp e) t)]
+    [(Var x) (Var x)]
+    [(Int n) (Int n)]
+    [(Bool b) (Bool b)]
+    [(Void) (Void)]
+    [(If cnd thn els)
+     (If (expose-alloc-exp cnd)
+         (expose-alloc-exp thn)
+         (expose-alloc-exp els))]
+    [(Prim op es)
+     (define new-es (map (lambda (e)
+                           (expose-alloc-exp e))
+                         es))
+     (Prim op new-es)]
+    [(Let x rhs body)
+     (Let x (expose-alloc-exp rhs)
+          (expose-alloc-exp body))]))
+
+(define/public (expose-allocation e)
+  (verbose "expose-allocation" e)
+  (match e
+    [(Program info body)
+     (Program info (expose-alloc-exp body))]
+    [else
+     (error "expose allocation unmatched" e)]))
+
+
+;; vector.rkt
+;; partial-eval
+;; 5047
+
+;(define/override (pe-exp env)
+;  (lambda (e)
+;    (match e
+;      [(Void)
+;       (Void)]
+;      [(HasType e ty)
+;       (define e^ ((pe-exp env) e))
+;       (HasType e^ ty)]
+;      [(Prim op es)
+;       #:when (member op '(vector vector-ref vector-set! vector-length))
+;       ;; TODO
+;       (define es^ (for/list ([e es]) ((pe-exp env) e)))
+;       (Prim op es^)]
+;      [else
+;       ((super pe-exp env) e)])))
+
+
+;; vector.rkt
+;; uniquify
+
+;(define/override (uniquify-exp env)
+;  (lambda (e)
+;    (match e
+;      [(Void)
+;       (Void)]
+;      [(HasType e t)
+;       (HasType ((uniquify-exp env) e) t)]
+;      [else
+;       ((super uniquify-exp env) e)])))
+
+;; vector.rkt
+;; shrink-exp
+;; pe-exp
+;; uniquify-exp
+
+
+  
+    
 ;;----------------------------------------------------------
 ;; uncover-get
 
@@ -1405,6 +1585,26 @@
      (Def f params ty info (rco-exp e))]))
 
 ;; Recall that an atomic expression ends up as an immediate argument of an x86 instruction.
+
+
+;; lambda
+;; 5053
+(define/override (rco-atom e)
+  (match e
+    [(AllocateClosure len type arity)
+     (define tmp (gensym 'alloc))
+     (values (Var tmp) `((,tmp . ,(AllocateClosure len type arity))))]
+    [else
+     (super rco-atom e)]))
+
+(define/override (rco-exp e)
+  (match e
+    [(AllocateClosure len type arity)
+     (AllocateClosure len type arity)]
+    [else
+     (super rco-exp e)]))
+  
+
 
 
 
@@ -1642,6 +1842,16 @@
 ;; explicate-control
 ;; delay force在什么地方使用
 ;; 创建的时候delay，使用的时候force
+
+
+;; lambda.rkt
+(define/override (basic-exp? e)
+  (match e
+    [(AllocateClosure len type arity)
+     #t]
+    [else
+     (super basic-exp? e)]))
+
 
 
 ;;------------------------------------------------------------------------------
@@ -2005,6 +2215,16 @@
 ;     (ProgramDefs info new-ds)]
 ;    [else
 ;     (super select-instructions e)]))
+
+
+;; lambda.rkt
+(define/override (select-instr-stmt e)
+  (match e
+    [(Assign lhs (AllocateClosure
+                  len `(Vector (,clos-type ,ts ... -> ,rt) ,fvts ...)
+                  arity))
+     (define lhs^ (select-instr-arg lhs))
+     。。。。。。。。。。
      
 
 ;;=====================================================================
