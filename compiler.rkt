@@ -970,11 +970,14 @@
         [(Var x) (Var x)]
         [(Void) (Void)]
         [(Bool b) (Bool b)]
+        ;; 调用一个闭包
         [(Prim 'vector-ref (list (Var c) (Int 0)))
          #:when (dict-has-key? closures c)
          (debug "closure vector-ref " c (dict-ref closures c))
          (FunRef (dict-ref closures c))]
+        
         [(HasType e t) (HasType (recur e) t)]
+        ;; let的值为闭包，需要对body进行递归进去
         [(Let x (HasType (Closure arity (list (FunRef f) fvs ...)) clos-ty)
               body)
          (debug "closure" x f)
@@ -982,20 +985,25 @@
          (define body^ ((optimize-known-calls-exp closures^) body))
          (Let x (HasType (Closure arity (cons (FunRef f) fvs)) clos-ty)
               body^)]
+        
         [(Let x e body)
          (Let x (recur e) (recur body))]
         [(If cnd thn els)
          (If (recur cnd) (recur thn) (recur els))]
+        ;; 
         [(Prim op es)
          (define e^ (recur e))
          (define es^ (map recur es))
          (match e^
+           ;; 这是什么情况
            [(Lambda (list `[,xs : ,Ts] ...) rT body)
             (make-lets (map cons xs es^) body)]
            [else (Apply e^ es^)])]
+        
         [(Closure arity es)
          (define es^ (for/list ([e es]) (recur e)))
          (Closure arity es^)]
+        
         [(FunRef f)
          (FunRef f)]
         [else (error "optimize known calls exp unmatched" e)]))))
@@ -2224,7 +2232,41 @@
                   len `(Vector (,clos-type ,ts ... -> ,rt) ,fvts ...)
                   arity))
      (define lhs^ (select-instr-arg lhs))
-     。。。。。。。。。。
+     ;; Add one quad word for the meta info tag
+     (define size (* (add1 len) 8))
+     ;;highest 7 bits are unused
+     ;;lowest 1 bit is 1 saying this is not a forwarding pointer
+     (define is-not-forward-tag 1)
+     ;;next 6 lowest bits are the length
+     (define length-tag (arithmetic-shift len 1))
+     ;;bits [6,56] are a bitmask indicating if [0,50] are pointers
+     (define ptr-tag
+       (for/fold ([tag 0]) ([t (in-list ts)] [i (in-naturals 7)])
+         (bitwise-ior tag (arithmetic-shift (b2i (root-type? t)) i))))
+     ;;bits [57,63] store the arity of the function
+     (define arity-tag (arithmetic-shift arity 57))
+     ;; Combine the tags into a single quad word
+     (define tag (bitwise-ior arity-tag ptr-tag length-tag
+                              is-not-forward-tag))
+     (define tmp-reg 'r11)
+     (list (Instr 'movq (list (Global 'free_ptr) (Reg tmp-reg)))
+           (Instr 'addq (list (Imm size) (Global 'free_ptr)))
+           (Instr 'movq (list (Imm tag) (Deref tmp-ref 0)))
+           (Instr 'movq (list (Reg tmp-reg) lhs^)))]
+    
+    [(Assign lhs (Prim 'procedure-arity (list e)))
+     (define new-lhs (select-instr-arg lhs))
+     (define new-e (select-instr-arg e))
+     (define tmp-reg 'r11)
+     (list (Instr 'movq (list new-e (Reg tmp-reg)))
+           (Instr 'movq (list (Deref tmp-reg 0) (Reg tmp-reg)))
+           (Instr 'sarq (list (Imm 57) (Reg tmp-reg)))
+           (Instr 'movq (list (Reg tmp-reg) new-lhs)))]
+    
+    [else
+     (super select-instr-stmt e)]))
+
+     
      
 
 ;;=====================================================================
