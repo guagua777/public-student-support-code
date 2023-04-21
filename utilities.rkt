@@ -1652,6 +1652,7 @@ Changelog:
          make-vector))
 
 (define (parse-exp e)
+  ;(printf "parse-exp is =============== ~a \n" e)
   (match e
     [(? symbol?) (Var e)]
     [(? fixnum?) (Int e)]
@@ -1996,6 +1997,7 @@ Changelog:
                   (thunk (test-typecheck typechecker sexp)))]
           [error-expected (file-exists? (format "./tests/~a.err" test-name))]
           [checker (check-exception name test-name error-expected)])
+     ;(printf "tsexp is ========== ~a \n" tsexp)
      (test-case
        "typecheck"  
        (if type-error-expected 

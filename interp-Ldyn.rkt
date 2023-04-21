@@ -67,12 +67,18 @@
   (verbose 'interp-Ldyn "start" ast)
   (define recur (interp-Ldyn-exp env))
   (define result
-    (match ast
+    (match ast ;; 为什么没有Closure
+      [(Void)
+       ;(Tagged void 'Void)]
+       ;(tag-value ast)]
+       (Tagged 0 'Integer)]
+       ;(Void)]
       [(Var x) (lookup x env)]
       [(FunRef f n) (lookup f env)]
       [(Int n) (Tagged n 'Integer)]
       [(Bool b) (Tagged b 'Boolean)]
       [(Lambda xs rt body)
+       ;; lambda 会转化为 Tagged
        (Tagged (Function xs body env) 'Procedure)]
       [(Prim 'vector es)
        (Tagged (apply vector (for/list ([e es]) (recur e))) 'Vector)]
@@ -115,6 +121,7 @@
        (match (Tagged-value (recur q)) [#f (recur f)] [else (recur t)])]
       [(Apply f es)
        (define new-f (recur f))
+       (printf "f is ~a, new-f is ~a \n" f new-f)
        (define args (map recur es))
        (check-tag new-f 'Procedure ast)
        (define f-val (Tagged-value new-f))
@@ -123,7 +130,9 @@
           (unless (eq? (length xs) (length args))
             (error 'trapped-error "number of arguments ~a != arity ~a\nin ~v"
                    (length args) (length xs) ast))
+          ;; 构建新的环境
           (define new-env (append (map cons xs args) lam-env))
+          ;; 解释body
           ((interp-Ldyn-exp new-env) body)]
          [else (error "interp-Ldyn-exp, expected function, not" f-val)])]))
   (verbose 'interp-Ldyn ast result)
@@ -131,7 +140,8 @@
 
 (define (interp-Ldyn-def ast)
   (match ast
-    [(Def f xs rt info body) (mcons f (Function xs body '()))]))
+    [(Def f xs rt info body)
+     (mcons f (Function xs body '()))]))
 
 ;; This version is for source code in Ldyn.
 (define (interp-Ldyn ast)
@@ -141,6 +151,7 @@
      (for/list ([b top-level])
        (set-mcdr! b (match (mcdr b)
                       [(Function xs body '())
+                       ;; 变成 tagged
                        (Tagged (Function xs body top-level) 'Procedure)])))
      (define result ((interp-Ldyn-exp top-level) body))
      (check-tag result 'Integer ast)
@@ -159,3 +170,111 @@
      (define result ((interp-Ldyn-exp top-level) (Apply (Var 'main) '())))
      (check-tag result 'Integer ast)
      (Tagged-value result)]))
+
+
+(interp-Ldyn (ProgramDefsExp '() '() (Int 42)))
+
+(interp-Ldyn (ProgramDefsExp '() '() (Apply (Lambda '(x) 'Any (Var 'x)) (list (Int 42)))))
+
+(interp-Ldyn 
+ (ProgramDefsExp
+  '()
+  (list (Def 'id '(x) 'Any '() (Var 'x)))
+  (Apply (Var 'id) (list (Int 42)))))
+
+(interp-Ldyn 
+ (ProgramDefsExp
+  '()
+  '()
+  (Let
+   'x
+   (Prim 'vector (list (Int 42) (Int 42) (Int 42)))
+   (If
+    (Prim 'read '())
+    (Apply
+     (Lambda
+      '(x)
+      'Any
+      (Prim
+       '+
+       (list
+        (Prim '- (list (Prim 'vector-ref (list (Var 'x) (Int 2)))))
+        (Int 84))))
+     (list (Var 'x)))
+    (If
+     (Prim
+      'and
+      (list
+       (Prim 'eq? (list (Bool #t) (Bool #f)))
+       (Prim
+        'eq?
+        (list
+         (Prim 'vector-ref (list (Var 'x) (Int 0)))
+         (Prim 'vector-ref (list (Var 'x) (Int 1)))))))
+     (Prim 'vector-ref (list (Var 'x) (Int 0)))
+     (Void))))))
+
+(interp-Ldyn 
+ (ProgramDefsExp
+  '()
+  '()
+  (Let
+   'x
+   (Prim 'vector (list (Int 42) (Int 10) (Int 20)))
+   (If
+    (Prim 'eq? (list (Prim 'read '()) (Int 1)))
+    (Apply
+     (Lambda
+      '(x)
+      'Any
+      (Prim
+       '+
+       (list
+        (Prim '- (list (Prim 'vector-ref (list (Var 'x) (Int 2)))))
+        (Int 84))))
+     (list (Var 'x)))
+    (If
+     (Prim
+      'and
+      (list
+       (Prim 'eq? (list (Bool #t) (Bool #f)))
+       (Prim
+        'eq?
+        (list
+         (Prim 'vector-ref (list (Var 'x) (Int 0)))
+         (Prim 'vector-ref (list (Var 'x) (Int 1)))))))
+     (Prim 'vector-ref (list (Var 'x) (Int 0)))
+     (Void))))))
+
+
+(interp-Ldyn 
+ (ProgramDefsExp
+  '()
+  '()
+  (Let
+   'x
+   (Prim 'vector (list (Int 42) (Int 10) (Int 20)))
+   (If
+    (Prim 'eq? (list (Prim 'read '()) (Int 1)))
+    (Apply
+     (Lambda
+      '(x)
+      'Any
+      (Prim
+       '+
+       (list
+        (Prim '- (list (Prim 'vector-ref (list (Var 'x) (Int 2)))))
+        (Int 84))))
+     (list (Var 'x)))
+    (If
+     (Prim
+      'and
+      (list
+       (Prim 'eq? (list (Bool #t) (Bool #f)))
+       (Prim
+        'eq?
+        (list
+         (Prim 'vector-ref (list (Var 'x) (Int 0)))
+         (Prim 'vector-ref (list (Var 'x) (Int 1)))))))
+     (Prim 'vector-set! (list (Var 'x) (Int 0) (Int 100)))
+     (Void))))))

@@ -927,34 +927,34 @@
 ;    '+
 ;    (list (Apply (Var 'g) (list (Int 11))) (Apply (Var 'h) (list (Int 15)))))))))))
 
-;(convert-to-closures
-; (ProgramDefs
-; '()
-; (list
-;  (Def
-;   'f372557
-;   '((x372558 : Integer))
-;   '(Integer -> Integer)
-;   '()
-;   (Let
-;    'y372559
-;    (Int 4)
-;    (Lambda
-;     '((z372560 : Integer))
-;     'Integer
-;     (Prim '+ (list (Var 'x372558) (Prim '+ (list (Var 'y372559) (Var 'z372560))))))))
-;  (Def
-;   'main
-;   '()
-;   'Integer
-;   '()
-;   (Let
-;    'g372561
-;    (Apply (FunRef 'f372557 1) (list (Int 5)))
-;    (Let
-;     'h372562
-;     (Apply (FunRef 'f372557 1) (list (Int 3)))
-;     (Prim '+ (list (Apply (Var 'g372561) (list (Int 11))) (Apply (Var 'h372562) (list (Int 15)))))))))))
+(convert-to-closures
+ (ProgramDefs
+ '()
+ (list
+  (Def
+   'f372557
+   '((x372558 : Integer))
+   '(Integer -> Integer)
+   '()
+   (Let
+    'y372559
+    (Int 4)
+    (Lambda
+     '((z372560 : Integer))
+     'Integer
+     (Prim '+ (list (Var 'x372558) (Prim '+ (list (Var 'y372559) (Var 'z372560))))))))
+  (Def
+   'main
+   '()
+   'Integer
+   '()
+   (Let
+    'g372561
+    (Apply (FunRef 'f372557 1) (list (Int 5)))
+    (Let
+     'h372562
+     (Apply (FunRef 'f372557 1) (list (Int 3)))
+     (Prim '+ (list (Apply (Var 'g372561) (list (Int 11))) (Apply (Var 'h372562) (list (Int 15)))))))))))
      
 
 
@@ -962,7 +962,7 @@
 ;; optimize known calls
 ;; 5056
 
-#;(define/public (optimize-known-calls-exp closures)
+(define/public (optimize-known-calls-exp closures)
   (lambda (e)
     (let ([recur (optimize-known-calls-exp closures)])
       (match e
@@ -1008,13 +1008,13 @@
          (FunRef f)]
         [else (error "optimize known calls exp unmatched" e)]))))
          
-#;(define/public (optimize-known-calls-def d)
+(define/public (optimize-known-calls-def d)
   (match d
     [(Def f ps rt info body)
      (define new-body ((optimize-known-calls-exp '()) body))
      (Def f ps rt info new-body)]))
 
-#;(define/public (optimize-known-calls p)
+(define/public (optimize-known-calls p)
   (match p
     [(ProgramDefs info ds)
      (ProgramDefs info (for/list ([d ds])
@@ -1266,7 +1266,7 @@
 
 
 ;; lambda
-#;(define/override (expose-alloc-exp e)
+(define/override (expose-alloc-exp e)
   (match e
     [(HasType (Closure arity es) vec-type)
      (define len (length es))
@@ -1296,7 +1296,7 @@
 ;; 4. 将第3部分作为洞传给第2部分
 ;; 5. 将第2部分作为洞传给第1部分
 
-#;(define/public (expose-alloc-vector es vec-type alloc-exp) ;; es为数据，vec-type为对应的类型
+(define/public (expose-alloc-vector es vec-type alloc-exp) ;; es为数据，vec-type为对应的类型
   (define e* (for/list ([e es]) (expose-alloc-exp e)))
   ;; 1. evaluate the e* and let-bind them to x*
   ;; 2. allocate the vector
@@ -1341,7 +1341,7 @@
   ;; combine 1 and 2-3
   (make-lets bnds alloc-init-vec));; alloc-init-vec又做为洞
 
-#;(define/public (expose-alloc-exp e)
+(define/public (expose-alloc-exp e)
   (verbose "expose alloc exp" e)
   (match e
     [(HasType (Prim 'vector es) vec-type) ;; 创建vector，此时需要进行分配到堆上 page 108
@@ -1368,7 +1368,7 @@
      (Let x (expose-alloc-exp rhs)
           (expose-alloc-exp body))]))
 
-#;(define/public (expose-allocation e)
+(define/public (expose-allocation e)
   (verbose "expose-allocation" e)
   (match e
     [(Program info body)
@@ -1597,7 +1597,7 @@
 
 ;; lambda
 ;; 5053
-#;(define/override (rco-atom e)
+(define/override (rco-atom e)
   (match e
     [(AllocateClosure len type arity)
      (define tmp (gensym 'alloc))
@@ -1605,7 +1605,7 @@
     [else
      (super rco-atom e)]))
 
-#;(define/override (rco-exp e)
+(define/override (rco-exp e)
   (match e
     [(AllocateClosure len type arity)
      (AllocateClosure len type arity)]
@@ -1853,7 +1853,7 @@
 
 
 ;; lambda.rkt
-#;(define/override (basic-exp? e)
+(define/override (basic-exp? e)
   (match e
     [(AllocateClosure len type arity)
      #t]
@@ -2226,7 +2226,7 @@
 
 
 ;; lambda.rkt
-#;(define/override (select-instr-stmt e)
+(define/override (select-instr-stmt e)
   (match e
     [(Assign lhs (AllocateClosure
                   len `(Vector (,clos-type ,ts ... -> ,rt) ,fvts ...)

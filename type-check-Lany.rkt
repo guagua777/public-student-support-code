@@ -122,8 +122,8 @@
            (define-values (new-e1 e-ty) (recur e1))
            (check-type-equal? e-ty 'Any e)
            (values (Prim pred (list new-e1)) 'Boolean)]
-          [(Exit)
-           (values (Exit) '_)]
+          ;[(Exit)
+          ; (values (Exit) '_)]
           [(Prim 'eq? (list arg1 arg2))
            (define-values (e1 t1) (recur arg1))
            (define-values (e2 t2) (recur arg2))
