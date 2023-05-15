@@ -81,13 +81,21 @@
        ;; lambda 会转化为 Tagged
        (Tagged (Function xs body env) 'Procedure)]
       [(Prim 'vector es)
+       ;(printf "vector new es is --------- ~a \n" (for/list ([e es]) (recur e)))
+       ;(printf "vector is =========== ~a \n" (Tagged (apply vector (for/list ([e es]) (recur e))) 'Vector))
        (Tagged (apply vector (for/list ([e es]) (recur e))) 'Vector)]
       [(Prim 'vector-ref (list e1 e2))
        (define vec (recur e1)) (define i (recur e2))
        (check-tag vec 'Vector ast) (check-tag i 'Integer ast)
        (unless (< (Tagged-value i) (vector-length (Tagged-value vec)))
          (error 'trapped-error "index ~a too big\nin ~v" (Tagged-value i) ast))
+       ;; 返回值
+       ;(printf "vector-ref e1 is ~a, ast is======= ~a \n vec is====== ~a \n" e1 ast vec)
        (vector-ref (Tagged-value vec) (Tagged-value i))]
+       ;(Tagged-value vec)是一个vector，所以外面需要添加vector-ref       
+       ;(define r (vector-ref (Tagged-value vec) (Tagged-value i)))
+       ;(printf "vector-ref r is ~a \n" r)
+       ;r]
       [(Prim 'vector-set! (list e1 e2 e3))
        (define vec (recur e1)) (define i (recur e2)) (define arg (recur e3))
        (check-tag vec 'Vector ast) (check-tag i 'Integer ast)
@@ -96,6 +104,7 @@
        (vector-set! (Tagged-value vec) (Tagged-value i) arg)
        (Tagged (void) 'Void)]
       [(Let x e body)
+       ;(printf "let (recur e) is e is ~a, recur e is ~a \n" e (recur e))
        ((interp-Ldyn-exp (cons (cons x (recur e)) env)) body)]
       [(Prim 'and (list e1 e2)) (recur (If e1 e2 (Bool #f)))]
       [(Prim 'or (list e1 e2))
@@ -118,7 +127,9 @@
        (tag-value
         (apply (interp-op op) (for/list ([a args]) (Tagged-value a))))]
       [(If q t f)
-       (match (Tagged-value (recur q)) [#f (recur f)] [else (recur t)])]
+       (match (Tagged-value (recur q))
+         [#f (recur f)]
+         [else (recur t)])]
       [(Apply f es)
        (define new-f (recur f))
        (printf "f is ~a, new-f is ~a \n" f new-f)
@@ -172,17 +183,25 @@
      (Tagged-value result)]))
 
 
-(interp-Ldyn (ProgramDefsExp '() '() (Int 42)))
+(printf "vector print is ~a \n" (vector 1 2 3))
 
-(interp-Ldyn (ProgramDefsExp '() '() (Apply (Lambda '(x) 'Any (Var 'x)) (list (Int 42)))))
+((interp-Ldyn-exp '())
+ (Prim 'vector (list (Int 42) (Int 42) (Int 42))))
+(Tagged
+ (vector (Tagged 42 'Integer) (Tagged 42 'Integer) (Tagged 42 'Integer))
+ 'Vector)
 
-(interp-Ldyn 
- (ProgramDefsExp
-  '()
-  (list (Def 'id '(x) 'Any '() (Var 'x)))
-  (Apply (Var 'id) (list (Int 42)))))
+;(interp-Ldyn (ProgramDefsExp '() '() (Int 42)))
+;
+;(interp-Ldyn (ProgramDefsExp '() '() (Apply (Lambda '(x) 'Any (Var 'x)) (list (Int 42)))))
+;
+;(interp-Ldyn 
+; (ProgramDefsExp
+;  '()
+;  (list (Def 'id '(x) 'Any '() (Var 'x)))
+;  (Apply (Var 'id) (list (Int 42)))))
 
-(interp-Ldyn 
+#;(interp-Ldyn 
  (ProgramDefsExp
   '()
   '()
@@ -213,6 +232,7 @@
          (Prim 'vector-ref (list (Var 'x) (Int 1)))))))
      (Prim 'vector-ref (list (Var 'x) (Int 0)))
      (Void))))))
+
 
 (interp-Ldyn 
  (ProgramDefsExp
@@ -247,7 +267,7 @@
      (Void))))))
 
 
-(interp-Ldyn 
+#;(interp-Ldyn 
  (ProgramDefsExp
   '()
   '()

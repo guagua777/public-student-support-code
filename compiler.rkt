@@ -83,55 +83,38 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; prelude的最主要的事情是：向下移动栈指针
-;; conclusion最主要的事情是：将prelude移动的指针移回去
+;; 第一步，dyn语言转换为Any语言
+;; 任何表达式都变成带Any的表达式
+;; An important invariant of this pass is that given any subexpression e in the LDyn program,
+;; the pass will produce an expression e′ in LAny that has type Any.
 
-;; prelude移动r15指针，the root stack pointer
-;; conclusion移回r15指针
+;; 注入类型
+;; + 参数类型必须投射成Integer类型
 
-;; prelude第一步保存返回地址 return address
-;; caller is map-vec
-;; callee is add1
 
-;; who ever called map-vec, 所以需要保存who的rbp
+; [(Assign lhs (AllocateClosure len `(Vector ,ts ...) arity))
+;   (define lhs^ (select-instr-arg lhs))
+;   ;; Add one quad word for the meta info tag
+;   (define size (* (add1 len) 8))
+;   ;;highest 7 bits are unused
+;   ;;lowest 1 bit is 1 saying this is not a forwarding pointer
+;   (define is-not-forward-tag 1)
+;   ;;next 6 lowest bits are the length
+;   (define length-tag (arithmetic-shift len 1))
+;   ;;bits [6,56] are a bitmask indicating if [0,50] are pointers
+;   (define ptr-tag
+;     (for/fold ([tag 0]) ([t (in-list ts)] [i (in-naturals 7)])
+;       (bitwise-ior tag (arithmetic-shift (b2i (root-type? t)) i))))
+;   (define arity-tag ...)
+;   ;; Combine the tags into a single quad word
+;   (define tag (bitwise-ior arity-tag ptr-tag length-tag is-not-forward-tag))
+;   (list (Instr 'movq (list (Global 'free_ptr) (Reg tmp-reg)))
+;         (Instr 'addq (list (Imm size) (Global 'free_ptr)))
+;         (Instr 'movq (list (Imm tag) (Deref tmp-reg 0)))
+;         (Instr 'movq (list (Reg tmp-reg) lhs^))
+;         )
+;   ]
 
-;In the context of a procedure call, the return address is the location of the instruction
-;that immediately follows the call instruction on the caller side.
-;The function call instruction, callq, pushes the return address onto the stack prior to jumping to the procedure.
-;The register rbp is the base pointer and is used to access variables
-;that are stored in the frame of the current procedure call.
-;The base pointer of the caller is stored immediately after the return address. 
-
-;; 35分钟 explicate control
-
-;; conclusion
-;; 1. move the stack point
-;; 2. pop the callee saved register
-;; 3. pop the rbp
-
-;rdi rsi rdx rcx r8 r9
-
-;The caller sets the stack pointer, register rsp, to the last data item in its frame.
-;The callee must not change anything in the caller’s frame, that is, anything that is at or above the stack pointer.
-;The callee is free to use locations that are below the stack pointer.
-
-;; caller saved: rax rcx rdx rsi rdi r8 r9 r10 r11
-;; callee saved: rsp rbp rbx r12 r13 r14 r15
-
-;;-------------------------------------------------
-;; during a function call
-;; flat closure
-
-;; 把lambda变成闭包
-
-;; (Def f `([,xs : ,ts] ...) rt info body) 变成
-;; (Def f 参数列表添加自由变量 rt info里面添加自由变量对应的引用 body)
-;(Def name ([clos : (Vector _ fvts ...)] ps′ ...) rt′
-;     (Let fvs1 (Prim 'vector-ref (list (Var clos) (Int 1)))
-;          ...
-;          (Let fvsn (Prim 'vector-ref (list (Var clos) (Int n)))
-;               body′
-;               )...))
 
 
 ;;------------------------------------------------------

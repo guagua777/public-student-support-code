@@ -17,6 +17,8 @@
 (require "interp-Llambda.rkt")
 (require "interp-Clambda.rkt")
 (require "interp-Ldyn.rkt")
+(require "interp-Lany.rkt")
+;(require "interp-Lcast.rkt")
 (require "interp.rkt")
 (require "type-check-Lif.rkt")
 (require "type-check-Lwhile.rkt")
@@ -25,6 +27,7 @@
 (require "type-check-Lfun.rkt")
 (require "type-check-Llambda.rkt")
 (require "type-check-Lany.rkt")
+;(require "type-check-gradual.rkt")
 (require "compiler.rkt")
 (debug-level 4)
 ;(AST-output-syntax 'concrete-syntax)
@@ -61,7 +64,11 @@
 ;(interp-tests "lambda" type-check-Llambda compiler-passes interp-Llambda "lambda_test" (tests-for "lambda"))
 
 
-(interp-tests "dynamic" type-check-Lany '() interp-Ldyn "dynamic_test" (tests-for "dynamic"))
+;(interp-tests "dynamic" type-check-Lany '() interp-Ldyn "dynamic_test" (tests-for "dynamic"))
+
+(interp-tests "any" type-check-Lany '() interp-Lany "dynamic_test" (tests-for "dynamic"))
+
+;(interp-tests "any" type-check-Lany '() interp-Lany "gradual_test" (tests-for "gradual"))
 
 ;; Uncomment the following when all the passes are complete to
 ;; test the final x86 code.

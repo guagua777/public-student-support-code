@@ -110,3 +110,146 @@
 (define (interp-Lcast p)
   (send (new interp-Lcast-class) interp-program p))
 
+
+
+
+;; =====================================================
+
+;
+;(define (consistent? t1 t2)
+;  (match* (t1 t2)
+;    [('Integer 'Integer) #t]
+;    [('Boolean 'Boolean) #t]
+;    [('Void 'Void) #t]
+;    [('Any t2) #t]
+;    [(t1 'Any) #t]
+;    [(`(Vector ,ts1 ...) `(Vector ,ts2 ...))
+;     (for/and ([t1 ts1] [t2 ts2]) (consistent? t1 t2))]
+;    [(`(,ts1 ... -> ,rt1) `(,ts2 ... -> ,rt2))
+;     (and (for/and ([t1 ts1] [t2 ts2]) (consistent? t1 t2))
+;          (consistent? rt1 rt2))]
+;    [(other wise) #f]))
+;
+;
+;(consistent? '(Any -> Any) '(Integer -> Integer))
+;
+;
+;(define (map [f : (Integer -> Integer)] ;; f的类型为Integer -> Integer
+;             [v : (Vector Integer Integer)])
+;  : (Vector Integer Integer)
+;  (vector (f (vector-ref v 0)) (f (vector-ref v 1))))
+;
+;;; 类型为 Any -> Any
+;(define (inc x) (+ x 1))
+;
+;(vector-ref (map inc (vector 0 41)) 1)
+;
+;;;=========
+;
+;(define (map [f : (Integer -> Integer)] ;; f的类型为Integer -> Integer
+;             [v : (Vector Integer Integer)])
+;  : (Vector Integer Integer)
+;  (vector (f (vector-ref v 0)) (f (vector-ref v 1))))
+;
+;;; 类型为 Any -> Any
+;(define (inc x) (+ x 1))
+;;; 类型为 -> Boolean
+;(define (true)
+;  #t)
+;;; Running this program with input 1 triggers an error
+;;; 输入为1的时候，触发error
+;;; 类型为 Any -> 
+;(define (maybe_inc x)
+;  (if (eq? 0 (read))
+;      ;; Integer
+;      (inc x)
+;      ;; Boolean
+;      (true)))
+;
+;(vector-ref (map maybe_inc (vector 0 41)) 0)
+;
+;
+;;;============
+;;The idea is that Cast is inserted every time the type checker encounters
+;;two types that are consistent but not equal.
+;
+;
+;(define (map [f : (Integer -> Integer)] ;; Integer -> Integer
+;             [v : (Vector Integer Integer)])
+;  : (Vector Integer Integer)
+;  (vector (f (vector-ref v 0)) (f (vector-ref v 1))))
+;
+;;; Any -> Any
+;(define (inc [x : Any]) : Any
+;  ;; Any 转 Integer ,然后 Integer 转 Any
+;  (cast (+ (cast x Any Integer) 1) Integer Any))
+;
+;;; -> Any
+;(define (true) : Any
+;  ;; Boolane 转 Any
+;  (cast #t Boolean Any))
+;;; Any -> Any
+;;; 这个为什么没有cast
+;
+;;When the maybe_inc function flows through this cast at runtime,
+;;we don’t know whether it will return an integer,
+;;because that depends on the input from the user.
+;
+;;The LCast interpreter therefore delays the checking of the cast until
+;;the function is applied. To do so it wraps maybe_inc in a new function
+;;that casts its parameter from Integer to Any,
+;;applies maybe_inc, and then casts the return value from Any to Integer
+;(define (maybe_inc [x : Any]) : Any
+;  (if (eq? 0 (read))
+;      (inc x)
+;      (true)))
+;;;;;;;;;;;;;;;;;;; Any -> Any 转 Integer -> Integer
+;(vector-ref (map (cast maybe_inc (Any -> Any) (Integer -> Integer))
+;                 (vector 0 41)) 0)
+;
+;;;==============================
+;;; 原地map 10.11
+;
+;;; 一种方式是在内部创建一个新的tuple
+;;; 一种方式是创建一个代理
+;;; Instead the interpreter needs to create a new kind of value,
+;;; a proxy, that intercepts every tuple operation.
+;;; 该代理， 读的时候如何处理，写的时候如何处理
+;;; 读的时候应用cast，此处将0 Integer 转为 Any
+;;; 写的时候应用cast，此处将带Tagged的Any转为Integer，（因为此处tagged的类型为Integer）
+;(define (map_inplace [f : (Any -> Any)]
+;                     [v : (Vector Any Any)]) : Void
+;  (begin
+;    (vector-set! v 0 (f (vector-ref v 0)))
+;    (vector-set! v 1 (f (vector-ref v 1)))))
+;
+;(define (inc x)
+;  (+ x 1))
+;
+;(let ([v (vector 0 41)])
+;  ;; We apply map_inplace to a tuple of integers
+;  ;; so the type checker inserts a cast from
+;  ;; (Vector Integer Integer) to (Vector Any Any).
+;  (begin (map_inplace inc v) (vector-ref v 1)))
+;
+;;;=====================================
+;; 10.12
+;
+;(define (map_inplace [f : (Any -> Any)] v) : Void
+;  (begin
+;    (vector-set! v 0 (f (vector-ref v 0)))
+;    (vector-set! v 1 (f (vector-ref v 1)))))
+;
+;(define (inc x)
+;  (+ x 1))
+;
+;(let ([v (vector 0 41)]) ;; v的类型为 (Vector Integer Integer)
+;  ;; 插入一个cast
+;  ;; so the type checker inserts a cast to Any.
+;  ;; A first thought is to use Inject, but that doesn’t work
+;  ;; because (Vector Integer Integer) is not a flat type.
+;  ;; Instead, we must first cast to (Vector Any Any), which is flat, and then inject to Any.
+;  (begin (map_inplace inc v) (vector-ref v 1)))
+;
+;
+
